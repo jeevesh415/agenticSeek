@@ -32,12 +32,15 @@ class Provider:
             "together": self.together_fn,
             "dsk_deepseek": self.dsk_deepseek,
             "openrouter": self.openrouter_fn,
+            "sapient_hrm": self.sapient_hrm_fn,
+            "colab": self.colab_fn,
+            "auto": self.auto_fn,
             "test": self.test_fn
         }
         self.logger = Logger("provider.log")
         self.api_key = None
         self.internal_url, self.in_docker = self.get_internal_url()
-        self.unsafe_providers = ["openai", "deepseek", "dsk_deepseek", "together", "google", "openrouter"]
+        self.unsafe_providers = ["openai", "deepseek", "dsk_deepseek", "together", "google", "openrouter", "sapient_hrm"]
         if self.provider_name not in self.available_providers:
             raise ValueError(f"Unknown provider: {provider_name}")
         if self.provider_name in self.unsafe_providers and self.is_local == False:
@@ -447,6 +450,98 @@ class Provider:
         except APIError as e:
             raise APIError(f"API error occurred: {str(e)}") from e
         return None
+
+    def sapient_hrm_fn(self, history, verbose=False):
+        """
+        Use Sapient HRM AI.
+        Since there is no public API documentation yet, this serves as a integration point.
+        It assumes an OpenAI-compatible interface or requires a specific base URL.
+        """
+        pretty_print("Using Sapient HRM AI Integration (Experimental)", color="status")
+
+        # If the user has provided a custom server address for HRM, we use it.
+        # Otherwise, we might default to a placeholder or a known endpoint if one existed.
+        base_url = self.server_ip if self.server_ip and "127.0.0.1" not in self.server_ip else "https://api.sapient.inc/v1"
+
+        client = OpenAI(api_key=self.api_key, base_url=base_url)
+        try:
+            response = client.chat.completions.create(
+                model=self.model, # e.g., "hrm-1"
+                messages=history,
+            )
+            thought = response.choices[0].message.content
+            if verbose:
+                print(thought)
+            return thought
+        except Exception as e:
+             raise Exception(f"Sapient HRM AI Error: {str(e)}\nEnsure you have the correct API Key and Endpoint if available.") from e
+
+    def colab_fn(self, history, verbose=False):
+        """
+        Use a Google Colab instance as backend (usually via ngrok).
+        Expects server_address to be the ngrok URL.
+        """
+        pretty_print(f"Connecting to Colab/Cloud instance at {self.server_ip}", color="status")
+
+        # Colab backends (like text-generation-webui or ollama-colab) usually provide an OpenAI compatible API
+        client = OpenAI(api_key="dummy", base_url=f"{self.server_ip}/v1")
+
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=history,
+            )
+            thought = response.choices[0].message.content
+            if verbose:
+                print(thought)
+            return thought
+        except Exception as e:
+            raise Exception(f"Colab Connection Error: {str(e)}\nCheck if your Colab instance is running and the URL is correct.") from e
+
+    def auto_fn(self, history, verbose=False):
+        """
+        Autonomous Mode: Tries to find the best available free resource.
+        It iterates through a list of likely free or local providers.
+        """
+        providers_to_try = ["ollama", "lm-studio", "colab", "huggingface"]
+
+        pretty_print("AUTO MODE: Attempting to find best available provider...", color="status")
+
+        for p_name in providers_to_try:
+            if p_name == "huggingface" and not os.getenv("HUGGINGFACE_API_KEY"):
+                continue # Skip if no key
+
+            try:
+                self.logger.info(f"Auto-switching to {p_name}")
+                # We temporarily switch the provider execution function
+                original_provider_name = self.provider_name
+                self.provider_name = p_name
+
+                # Check online status if it's a local/server based one
+                if p_name in ["ollama", "lm-studio", "colab"]:
+                     # For colab, we use the server_ip if set, otherwise skip
+                     if p_name == "colab" and ("127.0.0.1" in self.server_ip or "localhost" in self.server_ip):
+                         self.provider_name = original_provider_name
+                         continue
+                     if not self.is_ip_online(self.server_ip, timeout=2):
+                         if p_name == "ollama": # Try default ollama port
+                             pass
+                         else:
+                             self.provider_name = original_provider_name
+                             continue
+
+                response = self.available_providers[p_name](history, verbose)
+                pretty_print(f"Successfully used {p_name}", color="success")
+                # Restore provider name to auto for future calls
+                self.provider_name = original_provider_name
+                return response
+            except Exception as e:
+                self.logger.warning(f"Auto provider {p_name} failed: {e}")
+                self.provider_name = "auto"
+                continue
+
+        self.provider_name = "auto"
+        raise Exception("Auto Mode: All providers failed. Please check your configuration and available resources.")
 
     def test_fn(self, history, verbose=True):
         """

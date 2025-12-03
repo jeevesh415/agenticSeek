@@ -6,6 +6,7 @@ from sources.agents.code_agent import CoderAgent
 from sources.agents.file_agent import FileAgent
 from sources.agents.browser_agent import BrowserAgent
 from sources.agents.casual_agent import CasualAgent
+from sources.agents.research_agent import ResearchAgent
 from sources.text_to_speech import Speech
 from sources.tools.tools import Tools
 from sources.logger import Logger
@@ -26,7 +27,8 @@ class PlannerAgent(Agent):
             "coder": CoderAgent(name, "prompts/base/coder_agent.txt", provider, verbose=False),
             "file": FileAgent(name, "prompts/base/file_agent.txt", provider, verbose=False),
             "web": BrowserAgent(name, "prompts/base/browser_agent.txt", provider, verbose=False, browser=browser),
-            "casual": CasualAgent(name, "prompts/base/casual_agent.txt", provider, verbose=False)
+            "casual": CasualAgent(name, "prompts/base/casual_agent.txt", provider, verbose=False),
+            "research": ResearchAgent(name, "prompts/base/research_agent.txt", provider, verbose=False, browser=browser)
         }
         self.role = "planification"
         self.type = "planner_agent"

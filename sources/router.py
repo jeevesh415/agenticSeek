@@ -12,6 +12,7 @@ from sources.agents.code_agent import CoderAgent
 from sources.agents.casual_agent import CasualAgent
 from sources.agents.planner_agent import FileAgent
 from sources.agents.browser_agent import BrowserAgent
+from sources.agents.research_agent import ResearchAgent
 from sources.language import LanguageUtility
 from sources.utility import pretty_print, animate_thinking, timer_decorator
 from sources.logger import Logger
@@ -194,6 +195,8 @@ class AgentRouter:
             ("Search the web for tutorials on web development and build a sample site", "HIGH"),
             ("Create a Node.js app to query a public API for event listings and display them", "HIGH"),
             ("Find a file named ‘budget.xlsx’, analyze its data, and generate a chart", "HIGH"),
+            ("Conduct a deep research on the history of the internet and write a report", "HIGH"),
+            ("Research the best way to invest 1000 dollars in 2025 and provide a detailed guide", "HIGH"),
         ]
         random.shuffle(few_shots)
         texts = [text for text, _ in few_shots]
@@ -350,6 +353,9 @@ class AgentRouter:
             ("can you find research.pdf in my drive", "files"),
             ("hi", "talk"),
             ("hello", "talk"),
+            ("Do a deep research on the impact of AI on society", "research"),
+            ("Investigate the current state of quantum computing", "research"),
+            ("Write a comprehensive report on the future of space exploration", "research"),
         ]
         random.shuffle(few_shots)
         texts = [text for text, _ in few_shots]
