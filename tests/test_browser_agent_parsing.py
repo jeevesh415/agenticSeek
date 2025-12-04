@@ -7,9 +7,11 @@ from sources.agents.browser_agent import BrowserAgent
 class TestBrowserAgentParsing(unittest.TestCase):
     def setUp(self):
         # Initialize a basic BrowserAgent instance for testing
+        # Use absolute path to ensure the prompt file is found
+        prompt_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../prompts/base/browser_agent.txt'))
         self.agent = BrowserAgent(
             name="TestAgent",
-            prompt_path="../prompts/base/browser_agent.txt",
+            prompt_path=prompt_path,
             provider=None
         )
 
