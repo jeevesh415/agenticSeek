@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from sources.tools.searxSearch import searxSearch
 from dotenv import load_dotenv
 import requests  # Import the requests module
+from unittest.mock import patch, MagicMock
 
 load_dotenv()
 
@@ -34,12 +35,36 @@ class TestSearxSearch(unittest.TestCase):
         # Restore the environment variable after the test
         os.environ['SEARXNG_BASE_URL'] = "http://searx.lan"
 
-    def test_execute_valid_query(self):
+    @patch('requests.post')
+    def test_execute_valid_query(self, mock_post):
+        # Mock the response
+        mock_response = MagicMock()
+        # The tool parses HTML response using BeautifulSoup
+        mock_response.text = """
+        <html>
+            <body>
+                <article class="result">
+                    <h3>Test Result 1</h3>
+                    <a class="url_header" href="http://example.com/1">Link 1</a>
+                    <p class="content">Content 1</p>
+                </article>
+                <article class="result">
+                    <h3>Test Result 2</h3>
+                    <a class="url_header" href="http://example.com/2">Link 2</a>
+                    <p class="content">Content 2</p>
+                </article>
+            </body>
+        </html>
+        """
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
         # Execute the search and verify the result
         result = self.search_tool.execute([self.valid_query])
         print(f"Output from test_execute_valid_query: {result}")
         self.assertTrue(isinstance(result, str), "Result should be a string.")
-        self.assertNotEqual(result, "", "Result should not be empty. Check SearxNG instance.")
+        self.assertNotEqual(result, "", "Result should not be empty.")
+        self.assertIn("Test Result 1", result)
 
     def test_execute_empty_query(self):
         # Test with an empty query
@@ -58,20 +83,25 @@ class TestSearxSearch(unittest.TestCase):
         original_base_url = self.search_tool.base_url
         self.search_tool.base_url = "http://invalid_url"
         try:
-            result = self.search_tool.execute([self.valid_query])
-            print(f"Output from test_execute_request_exception: {result}")
-            self.assertTrue("Error during search" in result)
+            with self.assertRaises(Exception) as cm:
+                self.search_tool.execute([self.valid_query])
+            self.assertIn("Searxng search failed", str(cm.exception))
         finally:
             self.search_tool.base_url = original_base_url  # Restore the original base_url
 
-    def test_execute_no_results(self):
+    @patch('requests.post')
+    def test_execute_no_results(self, mock_post):
+        # Mock the response with empty results
+        mock_response = MagicMock()
+        mock_response.text = "<html><body></body></html>"
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
         # Execute the search and verify that an empty string is handled correctly
         result = self.search_tool.execute(["nonexistent query that should return no results"])
         print(f"Output from test_execute_no_results: {result}")
         self.assertTrue(isinstance(result, str), "Result should be a string.")
-        # Allow empty results, but print a warning
-        if result == "":
-            print("Warning: SearxNG returned no results for a query that should have returned no results.")
+        self.assertEqual(result, "No search results, web search failed.")
 
     def test_execution_failure_check_error(self):
         # Test when the output contains an error
