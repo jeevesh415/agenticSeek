@@ -105,27 +105,27 @@ def initialize_system():
         CasualAgent(
             name=config["MAIN"]["agent_name"],
             prompt_path=f"prompts/{personality_folder}/casual_agent.txt",
-            provider=provider, verbose=False
+            provider=provider, verbose=True
         ),
         CoderAgent(
             name="coder",
             prompt_path=f"prompts/{personality_folder}/coder_agent.txt",
-            provider=provider, verbose=False
+            provider=provider, verbose=True
         ),
         FileAgent(
             name="File Agent",
             prompt_path=f"prompts/{personality_folder}/file_agent.txt",
-            provider=provider, verbose=False
+            provider=provider, verbose=True
         ),
         BrowserAgent(
             name="Browser",
             prompt_path=f"prompts/{personality_folder}/browser_agent.txt",
-            provider=provider, verbose=False, browser=browser
+            provider=provider, verbose=True, browser=browser
         ),
         PlannerAgent(
             name="Planner",
             prompt_path=f"prompts/{personality_folder}/planner_agent.txt",
-            provider=provider, verbose=False, browser=browser
+            provider=provider, verbose=True, browser=browser
         )
     ]
     logger.info("Agents initialized")
