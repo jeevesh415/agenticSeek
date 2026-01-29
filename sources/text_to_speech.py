@@ -112,10 +112,13 @@ class Speech():
         parts = re.split(r'/|\\', path)
         return parts[-1] if parts else path
     
-    def shorten_paragraph(self, sentence):
-        #TODO find a better way, we would like to have the TTS not be annoying, speak only useful informations
+    def shorten_paragraph(self, sentence: str) -> str:
         """
-        Find long paragraph like **explanation**: <long text> by keeping only the first sentence.
+        Shorten paragraphs to keep TTS concise.
+        - Removes Markdown bold markers (**).
+        - For lines starting with specific keywords (like Explanation, Note, etc.), keep only the first sentence.
+        - Truncates very long paragraphs if they don't seem to contain crucial code/technical info.
+
         Args:
             sentence (str): The sentence to shorten
         Returns:
@@ -124,8 +127,26 @@ class Speech():
         lines = sentence.split('\n')
         lines_edited = []
         for line in lines:
-            if line.startswith('**'):
-                lines_edited.append(line.split('.')[0])
+            # Handle lines starting with **
+            if line.strip().startswith('**'):
+                # Remove all ** markers
+                clean_line = line.replace('**', '')
+
+                # If it looks like "Header: content", take first sentence of content
+                if ':' in clean_line:
+                    header, content = clean_line.split(':', 1)
+                    # Heuristic: If content is long, shorten it.
+                    # We check if there is a period to split by.
+                    if '.' in content:
+                        # Split by period.
+                        # We keep the header and the first sentence.
+                        first_sentence = content.split('.', 1)[0] + '.'
+                        lines_edited.append(f"{header}:{first_sentence}")
+                    else:
+                        lines_edited.append(clean_line)
+                else:
+                    # Just a bold line without colon, keep it (cleaned)
+                    lines_edited.append(clean_line)
             else:
                 lines_edited.append(line)
         return '\n'.join(lines_edited)
@@ -138,6 +159,7 @@ class Speech():
         Returns:
             str: The cleaned text with URLs replaced by domain names, code blocks removed, etc.
         """
+        sentence = self.shorten_paragraph(sentence)
         lines = sentence.split('\n')
         if self.language == 'zh':
             line_pattern = r'^\s*[\u4e00-\u9fff\uFF08\uFF3B\u300A\u3010\u201C(（\[【《]'
@@ -157,7 +179,7 @@ class Speech():
         else:
             sentence = re.sub(r'\b[\w./\\-]+\b', self.extract_filename, sentence)
             sentence = re.sub(r'\b-\w+\b', '', sentence)
-            sentence = re.sub(r'[^a-zA-Z0-9.,!? _ -]+', ' ', sentence)
+            sentence = re.sub(r'[^a-zA-Z0-9.,!?: _ -]+', ' ', sentence)
             sentence = sentence.replace('.com', '')
 
         sentence = re.sub(r'\s+', ' ', sentence).strip()
