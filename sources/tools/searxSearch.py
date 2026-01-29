@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import concurrent.futures
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -49,12 +50,9 @@ class searxSearch(Tools):
             return f"Error: {str(e)}"
 
     def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
+        """Check all links concurrently."""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            statuses = list(executor.map(self.link_valid, links))
         return statuses
     
     def execute(self, blocks: list, safety: bool = False) -> str:
