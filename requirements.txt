@@ -46,3 +46,4 @@ openai
 sniffio
 ordered_set
 pypinyin
+httpx>=0.28.1
