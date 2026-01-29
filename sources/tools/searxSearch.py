@@ -19,32 +19,40 @@ class searxSearch(Tools):
         self.base_url = os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
         self.user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
         self.paywall_keywords = [
-            "Member-only", "access denied", "restricted content", "404", "this page is not working"
+            "member-only", "access denied", "restricted content", "404", "this page is not working"
         ]
         if not self.base_url:
             raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
 
     def link_valid(self, link):
         """check if a link is valid."""
-        # TODO find a better way
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        headers = {"User-Agent": self.user_agent}
         try:
-            response = requests.get(link, headers=headers, timeout=5)
-            status = response.status_code
-            if status == 200:
-                content = response.text.lower()
-                if any(keyword in content for keyword in self.paywall_keywords):
-                    return "Status: Possible Paywall"
-                return "Status: OK"
-            elif status == 404:
-                return "Status: 404 Not Found"
-            elif status == 403:
-                return "Status: 403 Forbidden"
-            else:
-                return f"Status: {status} {response.reason}"
+            with requests.get(link, headers=headers, timeout=10, stream=True) as response:
+                status = response.status_code
+                if status == 200:
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "text" in content_type or "html" in content_type:
+                        content_chunk = ""
+                        # Read up to 10KB
+                        for chunk in response.iter_content(chunk_size=10240):
+                            if chunk:
+                                content_chunk += chunk.decode('utf-8', errors='ignore')
+                            if len(content_chunk) >= 10240:
+                                break
+
+                        if any(keyword in content_chunk.lower() for keyword in self.paywall_keywords):
+                            return "Status: Possible Paywall"
+                    return "Status: OK"
+                elif status == 404:
+                    return "Status: 404 Not Found"
+                elif status == 403:
+                    return "Status: 403 Forbidden"
+                else:
+                    return f"Status: {status} {response.reason}"
         except requests.exceptions.RequestException as e:
             return f"Error: {str(e)}"
 
