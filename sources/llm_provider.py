@@ -138,7 +138,8 @@ class Provider:
                         break
                     thought = response.json()["sentence"]
                     is_complete = bool(response.json()["is_complete"])
-                    time.sleep(2)
+                    if not is_complete:
+                        time.sleep(0.1)
                 except requests.exceptions.RequestException as e:
                     pretty_print(f"HTTP request failed: {str(e)}", color="failure")
                     break
