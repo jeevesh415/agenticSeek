@@ -2,6 +2,7 @@ import os, sys
 import stat
 import mimetypes
 import configparser
+import asyncio
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -83,7 +84,7 @@ class FileFinder(Tools):
         else:
             return {"filename": file_path, "error": "File not found"}
     
-    def recursive_search(self, directory_path: str, filename: str) -> str:
+    def _recursive_search_sync(self, directory_path: str, filename: str) -> str:
         """
         Recursively searches for files in a directory and its subdirectories.
         Args:
@@ -104,9 +105,21 @@ class FileFinder(Tools):
                     file_path = os.path.join(root, f)
                     return file_path
         return None
+
+    async def recursive_search(self, directory_path: str, filename: str) -> str:
+        """
+        Recursively searches for files in a directory and its subdirectories asynchronously.
+        Args:
+            directory_path (str): The directory to search in
+            filename (str): The filename to search for
+        Returns:
+            str | None: The path to the file if found, None otherwise
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._recursive_search_sync, directory_path, filename)
         
 
-    def execute(self, blocks: list, safety:bool = False) -> str:
+    async def execute(self, blocks: list, safety:bool = False) -> str:
         """
         Executes the file finding operation for given filenames.
         Args:
@@ -127,7 +140,7 @@ class FileFinder(Tools):
             if action is None:
                 action = "info"
             print("File finder: recursive search started...")
-            file_path = self.recursive_search(self.work_dir, filename)
+            file_path = await self.recursive_search(self.work_dir, filename)
             if file_path is None:
                 output = f"File: {filename} - not found\n"
                 continue
@@ -179,10 +192,10 @@ class FileFinder(Tools):
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     tool = FileFinder()
-    result = tool.execute(["""
+    result = asyncio.run(tool.execute(["""
 action=read
 name=tools.py
-"""], False)
+"""], False))
     print("Execution result:")
     print(result)
     print("\nFailure check:", tool.execution_failure_check(result))
