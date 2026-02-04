@@ -1,6 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import concurrent.futures
+from urllib.parse import urlparse
+import sys
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -16,7 +19,7 @@ class searxSearch(Tools):
         self.tag = "web_search"
         self.name = "searxSearch"
         self.description = "A tool for searching a SearxNG for web search"
-        self.base_url = os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
+        self.base_url = base_url or os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
         self.user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
         self.paywall_keywords = [
             "Member-only", "access denied", "restricted content", "404", "this page is not working"
@@ -24,18 +27,61 @@ class searxSearch(Tools):
         if not self.base_url:
             raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
 
-    def link_valid(self, link):
+    def link_valid(self, link, session=None):
         """check if a link is valid."""
-        # TODO find a better way
-        if not link.startswith("http"):
+        try:
+            parsed = urlparse(link)
+            if not parsed.scheme or not parsed.netloc or parsed.scheme not in ['http', 'https']:
+                 return "Status: Invalid URL"
+        except Exception:
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        requester = session if session else requests
+
         try:
-            response = requests.get(link, headers=headers, timeout=5)
-            status = response.status_code
+            # Try HEAD first to check status efficiently
+            try:
+                response = requester.head(link, headers=headers, timeout=5, allow_redirects=True)
+                status = response.status_code
+            except requests.exceptions.RequestException:
+                # If HEAD fails, it might be a connection issue or timeout.
+                # In some cases, servers block HEAD but allow GET.
+                # We can try GET as a fallback.
+                response = requester.get(link, headers=headers, timeout=5, stream=True)
+                status = response.status_code
+
+            # Handle 405 Method Not Allowed (some servers block HEAD)
+            if status == 405:
+                response = requester.get(link, headers=headers, timeout=5, stream=True)
+                status = response.status_code
+
             if status == 200:
-                content = response.text.lower()
+                # If the successful request was a HEAD request, we need to GET the body to check for paywalls.
+                if response.request.method == 'HEAD':
+                     response = requester.get(link, headers=headers, timeout=5, stream=True)
+                     status = response.status_code
+                     if status != 200:
+                        if status == 404:
+                            return "Status: 404 Not Found"
+                        elif status == 403:
+                            return "Status: 403 Forbidden"
+                        else:
+                            return f"Status: {status} {response.reason}"
+
+                # Check for paywall keywords in the first 4KB of content
+                content = ""
+                try:
+                    for chunk in response.iter_content(chunk_size=1024, decode_unicode=True):
+                        if chunk:
+                            content += chunk
+                        if len(content) > 4096:
+                            break
+                except Exception:
+                    # Ignore decoding errors, process what we have
+                    pass
+
+                content = content.lower()
                 if any(keyword in content for keyword in self.paywall_keywords):
                     return "Status: Possible Paywall"
                 return "Status: OK"
@@ -50,12 +96,14 @@ class searxSearch(Tools):
 
     def check_all_links(self, links):
         """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+        with requests.Session() as session:
+            # Set headers for session to look like a browser
+            session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                # Use executor.map to preserve order
+                results = executor.map(lambda l: self.link_valid(l, session), links)
+                return list(results)
     
     def execute(self, blocks: list, safety: bool = False) -> str:
         """Executes a search query against a SearxNG instance using POST and extracts URLs and titles."""
