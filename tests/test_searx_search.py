@@ -1,16 +1,21 @@
 import unittest
+import unittest.mock
 import os
 import sys
+import asyncio
+import httpx
+from unittest import IsolatedAsyncioTestCase
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # Add project root to Python path
 from sources.tools.searxSearch import searxSearch
 from dotenv import load_dotenv
-import requests  # Import the requests module
 
 load_dotenv()
 
-class TestSearxSearch(unittest.TestCase):
+class TestSearxSearch(IsolatedAsyncioTestCase):
 
     def setUp(self):
+        os.environ['WORK_DIR'] = "/tmp"  # Ensure WORK_DIR is set for Tools init
         os.environ['SEARXNG_BASE_URL'] = "http://127.0.0.1:8080"  # Set the environment variable
         self.base_url = os.getenv("SEARXNG_BASE_URL")
         self.search_tool = searxSearch(base_url=self.base_url)
@@ -34,44 +39,71 @@ class TestSearxSearch(unittest.TestCase):
         # Restore the environment variable after the test
         os.environ['SEARXNG_BASE_URL'] = "http://searx.lan"
 
-    def test_execute_valid_query(self):
-        # Execute the search and verify the result
-        result = self.search_tool.execute([self.valid_query])
-        print(f"Output from test_execute_valid_query: {result}")
-        self.assertTrue(isinstance(result, str), "Result should be a string.")
-        self.assertNotEqual(result, "", "Result should not be empty. Check SearxNG instance.")
+    async def test_execute_valid_query(self):
+        # Mocking the httpx response
+        mock_response = unittest.mock.Mock()
+        mock_response.status_code = 200
+        mock_response.text = """
+        <html><body>
+        <article class="result">
+            <a class="url_header" href="http://example.com"></a>
+            <h3>Example Title</h3>
+            <p class="content">Example Snippet</p>
+        </article>
+        </body></html>
+        """
+        mock_response.raise_for_status = unittest.mock.Mock()
 
-    def test_execute_empty_query(self):
+        # Setup mocking context
+        # Patching httpx.AsyncClient.post to return the mock_response
+        with unittest.mock.patch("httpx.AsyncClient.post", new_callable=unittest.mock.AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await self.search_tool.execute([self.valid_query])
+            print(f"Output from test_execute_valid_query: {result}")
+            self.assertTrue(isinstance(result, str), "Result should be a string.")
+            self.assertIn("Example Title", result)
+            self.assertIn("http://example.com", result)
+
+    async def test_execute_empty_query(self):
         # Test with an empty query
-        result = self.search_tool.execute([""])
+        result = await self.search_tool.execute([""])
         print(f"Output from test_execute_empty_query: {result}")
         self.assertEqual(result, "Error: Empty search query provided.")
 
-    def test_execute_no_query(self):
+    async def test_execute_no_query(self):
         # Test with no query provided
-        result = self.search_tool.execute([])
+        result = await self.search_tool.execute([])
         print(f"Output from test_execute_no_query: {result}")
         self.assertEqual(result, "Error: No search query provided.")
 
-    def test_execute_request_exception(self):
-        # Test a request exception by temporarily modifying the base_url to an invalid one
-        original_base_url = self.search_tool.base_url
-        self.search_tool.base_url = "http://invalid_url"
-        try:
-            result = self.search_tool.execute([self.valid_query])
-            print(f"Output from test_execute_request_exception: {result}")
-            self.assertTrue("Error during search" in result)
-        finally:
-            self.search_tool.base_url = original_base_url  # Restore the original base_url
+    async def test_execute_request_exception(self):
+        # Test a request exception
+        with unittest.mock.patch("httpx.AsyncClient.post", new_callable=unittest.mock.AsyncMock) as mock_post:
+            # We need to simulate an exception. httpx.RequestError requires a request argument
+            request = httpx.Request("POST", "http://test")
+            mock_post.side_effect = httpx.RequestError("Mock Error", request=request)
 
-    def test_execute_no_results(self):
+            try:
+                result = await self.search_tool.execute([self.valid_query])
+                self.fail("Should have raised Exception")
+            except Exception as e:
+                print(f"Output from test_execute_request_exception: {e}")
+                self.assertTrue("Searxng search failed" in str(e))
+
+    async def test_execute_no_results(self):
         # Execute the search and verify that an empty string is handled correctly
-        result = self.search_tool.execute(["nonexistent query that should return no results"])
-        print(f"Output from test_execute_no_results: {result}")
-        self.assertTrue(isinstance(result, str), "Result should be a string.")
-        # Allow empty results, but print a warning
-        if result == "":
-            print("Warning: SearxNG returned no results for a query that should have returned no results.")
+        mock_response = unittest.mock.Mock()
+        mock_response.status_code = 200
+        mock_response.text = "<html><body></body></html>"
+        mock_response.raise_for_status = unittest.mock.Mock()
+
+        with unittest.mock.patch("httpx.AsyncClient.post", new_callable=unittest.mock.AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await self.search_tool.execute(["nonexistent query that should return no results"])
+            print(f"Output from test_execute_no_results: {result}")
+            self.assertEqual(result, "No search results, web search failed.")
 
     def test_execution_failure_check_error(self):
         # Test when the output contains an error
