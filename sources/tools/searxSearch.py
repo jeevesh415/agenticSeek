@@ -1,6 +1,10 @@
 import requests
+import asyncio
+import httpx
+import threading
 from bs4 import BeautifulSoup
 import os
+import sys
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -16,7 +20,7 @@ class searxSearch(Tools):
         self.tag = "web_search"
         self.name = "searxSearch"
         self.description = "A tool for searching a SearxNG for web search"
-        self.base_url = os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
+        self.base_url = base_url or os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
         self.user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
         self.paywall_keywords = [
             "Member-only", "access denied", "restricted content", "404", "this page is not working"
@@ -26,7 +30,8 @@ class searxSearch(Tools):
 
     def link_valid(self, link):
         """check if a link is valid."""
-        # TODO find a better way
+        # This synchronous method is kept for backward compatibility and as a simple wrapper.
+        # But for performance, we should ideally use the async version.
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
@@ -48,14 +53,63 @@ class searxSearch(Tools):
         except requests.exceptions.RequestException as e:
             return f"Error: {str(e)}"
 
+    async def link_valid_async(self, client, link):
+        """check if a link is valid asynchronously."""
+        if not link.startswith("http"):
+            return "Status: Invalid URL"
+
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        try:
+            # Follow redirects to match requests behavior
+            response = await client.get(link, headers=headers, timeout=5, follow_redirects=True)
+            status = response.status_code
+            if status == 200:
+                # We only need to check the beginning of the content or check headers if possible,
+                # but to match existing logic we read text. limiting to reasonable amount for perf.
+                content = response.text[:1000].lower()
+                if any(keyword in content for keyword in self.paywall_keywords):
+                    return "Status: Possible Paywall"
+                return "Status: OK"
+            elif status == 404:
+                return "Status: 404 Not Found"
+            elif status == 403:
+                return "Status: 403 Forbidden"
+            else:
+                return f"Status: {status} {response.reason_phrase}"
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def check_all_links_async(self, links):
+        """Async implementation of checking all links."""
+        async with httpx.AsyncClient(verify=True) as client:
+            tasks = [self.link_valid_async(client, link) for link in links]
+            return await asyncio.gather(*tasks)
+
     def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+        """Check all links, one by one (asynchronously)."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If we are in a running loop, we must run the new loop in a separate thread
+            result = []
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    res = new_loop.run_until_complete(self.check_all_links_async(links))
+                    result.append(res)
+                finally:
+                    new_loop.close()
+
+            t = threading.Thread(target=run_in_thread)
+            t.start()
+            t.join()
+            return result[0]
+        else:
+            return asyncio.run(self.check_all_links_async(links))
     
     def execute(self, blocks: list, safety: bool = False) -> str:
         """Executes a search query against a SearxNG instance using POST and extracts URLs and titles."""
