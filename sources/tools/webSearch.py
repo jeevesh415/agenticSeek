@@ -1,9 +1,7 @@
 import os
-import requests
 import dotenv
 import asyncio
 import httpx
-import threading
 
 dotenv.load_dotenv()
 
@@ -57,33 +55,11 @@ class webSearch(Tools):
             tasks = [self.link_valid_async(client, link) for link in links]
             return await asyncio.gather(*tasks)
 
-    def check_all_links(self, links):
+    async def check_all_links(self, links):
         """Check all links, one by one (asynchronously)."""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = None
+        return await self.check_all_links_async(links)
 
-        if loop and loop.is_running():
-            # If we are in a running loop, we must run the new loop in a separate thread
-            result = []
-            def run_in_thread():
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                try:
-                    res = new_loop.run_until_complete(self.check_all_links_async(links))
-                    result.append(res)
-                finally:
-                    new_loop.close()
-
-            t = threading.Thread(target=run_in_thread)
-            t.start()
-            t.join()
-            return result[0]
-        else:
-            return asyncio.run(self.check_all_links_async(links))
-
-    def execute(self, blocks: str, safety: bool = True) -> str:
+    async def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
             return "Error: No SerpApi key provided."
         for block in blocks:
@@ -100,26 +76,27 @@ class webSearch(Tools):
                     "num": 50,
                     "output": "json"
                 }
-                response = requests.get(url, params=params)
-                response.raise_for_status()
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
 
-                data = response.json()
-                results = []
-                if "organic_results" in data and len(data["organic_results"]) > 0:
-                    organic_results = data["organic_results"][:50]
-                    links = [result.get("link", "No link available") for result in organic_results]
-                    statuses = self.check_all_links(links)
-                    for result, status in zip(organic_results, statuses):
-                        if not "OK" in status:
-                            continue
-                        title = result.get("title", "No title")
-                        snippet = result.get("snippet", "No snippet available")
-                        link = result.get("link", "No link available")
-                        results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
-                    return "\n\n".join(results)
-                else:
-                    return "No results found for the query."
-            except requests.RequestException as e:
+                    data = response.json()
+                    results = []
+                    if "organic_results" in data and len(data["organic_results"]) > 0:
+                        organic_results = data["organic_results"][:50]
+                        links = [result.get("link", "No link available") for result in organic_results]
+                        statuses = await self.check_all_links(links)
+                        for result, status in zip(organic_results, statuses):
+                            if not "OK" in status:
+                                continue
+                            title = result.get("title", "No title")
+                            snippet = result.get("snippet", "No snippet available")
+                            link = result.get("link", "No link available")
+                            results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
+                        return "\n\n".join(results)
+                    else:
+                        return "No results found for the query."
+            except httpx.RequestError as e:
                 return f"Error during web search: {str(e)}"
             except Exception as e:
                 return f"Unexpected error: {str(e)}"
@@ -137,6 +114,6 @@ class webSearch(Tools):
 if __name__ == "__main__":
     search_tool = webSearch(api_key=os.getenv("SERPAPI_KEY"))
     query = "when did covid start"
-    result = search_tool.execute([query], safety=True)
+    result = asyncio.run(search_tool.execute([query], safety=True))
     output = search_tool.interpreter_feedback(result)
     print(output)
