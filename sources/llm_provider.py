@@ -46,6 +46,8 @@ class Provider:
         elif self.provider_name != "ollama":
             pretty_print(f"Provider: {provider_name} initialized at {self.server_ip}", color="success")
 
+        self.session = requests.Session()
+
     def get_model_name(self) -> str:
         return self.model
 
@@ -127,12 +129,12 @@ class Provider:
             pretty_print(f"Server is offline at {self.server_ip}", color="failure")
 
         try:
-            requests.post(route_setup, json={"model": self.model})
-            requests.post(route_gen, json={"messages": history})
+            self.session.post(route_setup, json={"model": self.model})
+            self.session.post(route_gen, json={"messages": history})
             is_complete = False
             while not is_complete:
                 try:
-                    response = requests.get(f"{self.server_ip}/get_updated_sentence")
+                    response = self.session.get(f"{self.server_ip}/get_updated_sentence")
                     if "error" in response.json():
                         pretty_print(response.json()["error"], color="failure")
                         break
@@ -355,7 +357,7 @@ class Provider:
         }
 
         try:
-            response = requests.post(route_start, json=payload, timeout=30)
+            response = self.session.post(route_start, json=payload, timeout=30)
             if response.status_code != 200:
                 raise Exception(f"LM Studio returned status {response.status_code}: {response.text}")
             if not response.text.strip():
