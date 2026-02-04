@@ -1,6 +1,8 @@
 import requests
+import httpx
 from bs4 import BeautifulSoup
 import os
+import asyncio
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -57,7 +59,7 @@ class searxSearch(Tools):
             statuses.append(status)
         return statuses
     
-    def execute(self, blocks: list, safety: bool = False) -> str:
+    async def execute(self, blocks: list, safety: bool = False) -> str:
         """Executes a search query against a SearxNG instance using POST and extracts URLs and titles."""
         if not blocks:
             return "Error: No search query provided."
@@ -79,9 +81,11 @@ class searxSearch(Tools):
         }
         data = f"q={query}&categories=general&language=auto&time_range=&safesearch=0&theme=simple".encode('utf-8')
         try:
-            response = requests.post(search_url, headers=headers, data=data, verify=False)
-            response.raise_for_status()
-            html_content = response.text
+            async with httpx.AsyncClient(verify=False) as client:
+                response = await client.post(search_url, headers=headers, content=data)
+                response.raise_for_status()
+                html_content = response.text
+
             soup = BeautifulSoup(html_content, 'html.parser')
             results = []
             for article in soup.find_all('article', class_='result'):
@@ -94,7 +98,7 @@ class searxSearch(Tools):
             if len(results) == 0:
                 return "No search results, web search failed."
             return "\n\n".join(results)  # Return results as a single string, separated by newlines
-        except requests.exceptions.RequestException as e:
+        except httpx.HTTPError as e:
             raise Exception("\nSearxng search failed. did you run start_services.sh? is docker still running?") from e
 
     def execution_failure_check(self, output: str) -> bool:

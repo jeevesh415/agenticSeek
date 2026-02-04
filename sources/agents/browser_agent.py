@@ -349,7 +349,7 @@ class BrowserAgent(Agent):
             return ai_prompt, "" 
         animate_thinking(f"Searching...", color="status")
         self.status_message = "Searching..."
-        search_result_raw = self.tools["web_search"].execute([ai_prompt], False)
+        search_result_raw = await self.tools["web_search"].execute([ai_prompt], False)
         search_result = self.jsonify_search_results(search_result_raw)[:16]
         self.show_search_results(search_result)
         prompt = self.make_newsearch_prompt(user_prompt, search_result)
