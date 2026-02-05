@@ -1,8 +1,8 @@
-import requests
 import httpx
 from bs4 import BeautifulSoup
 import os
 import asyncio
+import sys
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -26,19 +26,18 @@ class searxSearch(Tools):
         if not self.base_url:
             raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
 
-    def link_valid(self, link):
-        """check if a link is valid."""
-        # TODO find a better way
+    async def link_valid_async(self, client, link):
+        """check if a link is valid asynchronously."""
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
-            response = requests.get(link, headers=headers, timeout=5)
+            response = await client.get(link, headers=headers, timeout=5, follow_redirects=True)
             status = response.status_code
             if status == 200:
                 content = response.text.lower()
-                if any(keyword in content for keyword in self.paywall_keywords):
+                if any(keyword.lower() in content for keyword in self.paywall_keywords):
                     return "Status: Possible Paywall"
                 return "Status: OK"
             elif status == 404:
@@ -46,18 +45,15 @@ class searxSearch(Tools):
             elif status == 403:
                 return "Status: 403 Forbidden"
             else:
-                return f"Status: {status} {response.reason}"
-        except requests.exceptions.RequestException as e:
+                return f"Status: {status} {response.reason_phrase}"
+        except Exception as e:
             return f"Error: {str(e)}"
 
-    def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+    async def check_all_links(self, links):
+        """Check all links asynchronously."""
+        async with httpx.AsyncClient() as client:
+            tasks = [self.link_valid_async(client, link) for link in links]
+            return await asyncio.gather(*tasks)
     
     async def execute(self, blocks: list, safety: bool = False) -> str:
         """Executes a search query against a SearxNG instance using POST and extracts URLs and titles."""
