@@ -151,7 +151,7 @@ class Interaction:
         push_last_agent_memory = False
         if self.last_query is None or len(self.last_query) == 0:
             return False
-        agent = self.router.select_agent(self.last_query)
+        agent = await self.router.select_agent(self.last_query)
         if agent is None:
             return False
         if self.current_agent != agent and self.last_answer is not None:
