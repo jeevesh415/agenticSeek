@@ -24,6 +24,7 @@ import tempfile
 import markdownify
 import sys
 import re
+import asyncio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -347,32 +348,43 @@ class Browser:
         is_long_enough = word_count > 4
         return (word_count >= 5 and (has_punctuation or is_long_enough))
 
-    def get_text(self) -> str | None:
+    async def get_text(self) -> str | None:
         """Get page text as formatted Markdown"""
         try:
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-            for element in soup(['script', 'style', 'noscript', 'meta', 'link']):
-                element.decompose()
-            markdown_converter = markdownify.MarkdownConverter(
-                heading_style="ATX",
-                strip=['a'],
-                autolinks=False,
-                bullets='•',
-                strong_em_symbol='*',
-                default_title=False,
-            )
-            markdown_text = markdown_converter.convert(str(soup.body))
-            lines = []
-            for line in markdown_text.splitlines():
-                stripped = line.strip()
-                if stripped and self.is_sentence(stripped):
-                    cleaned = ' '.join(stripped.split())
-                    lines.append(cleaned)
-            result = "[Start of page]\n\n" + "\n\n".join(lines) + "\n\n[End of page]"
-            result = re.sub(r'!\[(.*?)\]\(.*?\)', r'[IMAGE: \1]', result)
-            self.logger.info(f"Extracted text: {result[:100]}...")
-            self.logger.info(f"Extracted text length: {len(result)}")
-            return result[:32768]
+            # Get source in main thread
+            page_source = self.driver.page_source
+
+            def parse_html(html_content):
+                soup = BeautifulSoup(html_content, 'html.parser')
+                for element in soup(['script', 'style', 'noscript', 'meta', 'link']):
+                    element.decompose()
+                markdown_converter = markdownify.MarkdownConverter(
+                    heading_style="ATX",
+                    strip=['a'],
+                    autolinks=False,
+                    bullets='•',
+                    strong_em_symbol='*',
+                    default_title=False,
+                )
+                if not soup.body:
+                    return ""
+                markdown_text = markdown_converter.convert(str(soup.body))
+                lines = []
+                for line in markdown_text.splitlines():
+                    stripped = line.strip()
+                    if stripped and self.is_sentence(stripped):
+                        cleaned = ' '.join(stripped.split())
+                        lines.append(cleaned)
+                result = "[Start of page]\n\n" + "\n\n".join(lines) + "\n\n[End of page]"
+                result = re.sub(r'!\[(.*?)\]\(.*?\)', r'[IMAGE: \1]', result)
+                return result
+
+            result = await asyncio.to_thread(parse_html, page_source)
+            if result:
+                self.logger.info(f"Extracted text: {result[:100]}...")
+                self.logger.info(f"Extracted text length: {len(result)}")
+                return result[:32768]
+            return None
         except Exception as e:
             self.logger.error(f"Error getting text: {str(e)}")
             return None
@@ -757,7 +769,7 @@ if __name__ == "__main__":
     print("AntiCaptcha / Form Test")
     browser.go_to("https://bot.sannysoft.com")
     time.sleep(5)
-    #txt = browser.get_text()
+    #txt = asyncio.run(browser.get_text())
     browser.go_to("https://home.openweathermap.org/users/sign_up")
     inputs_visible = browser.get_form_inputs()
     print("inputs:", inputs_visible)

@@ -248,9 +248,9 @@ class BrowserAgent(Agent):
         self.logger.warning("No suitable link selected.")
         return None
     
-    def get_page_text(self, limit_to_model_ctx = False) -> str:
+    async def get_page_text(self, limit_to_model_ctx = False) -> str:
         """Get the text content of the current page."""
-        page_text = self.browser.get_text()
+        page_text = await self.browser.get_text()
         if limit_to_model_ctx:
             #page_text = self.memory.compress_text_to_max_ctx(page_text)
             page_text = self.memory.trim_text_to_max_ctx(page_text)
@@ -372,13 +372,13 @@ class BrowserAgent(Agent):
                 self.status_message = "Filling web form..."
                 pretty_print(f"Filling inputs form...", color="status")
                 fill_success = self.browser.fill_form(extracted_form)
-                page_text = self.get_page_text(limit_to_model_ctx=True)
+                page_text = await self.get_page_text(limit_to_model_ctx=True)
                 answer = self.handle_update_prompt(user_prompt, page_text, fill_success)
                 answer, reasoning = await self.llm_decide(prompt)
 
             if Action.FORM_FILLED.value in answer:
                 pretty_print(f"Filled form. Handling page update.", color="status")
-                page_text = self.get_page_text(limit_to_model_ctx=True)
+                page_text = await self.get_page_text(limit_to_model_ctx=True)
                 self.navigable_links = self.browser.get_navigable()
                 prompt = self.make_navigation_prompt(user_prompt, page_text)
                 continue
@@ -417,7 +417,7 @@ class BrowserAgent(Agent):
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
                 continue
             self.current_page = link
-            page_text = self.get_page_text(limit_to_model_ctx=True)
+            page_text = await self.get_page_text(limit_to_model_ctx=True)
             self.navigable_links = self.browser.get_navigable()
             prompt = self.make_navigation_prompt(user_prompt, page_text)
             self.status_message = "Navigating..."
