@@ -240,8 +240,12 @@ provider_server_address = # Typically ignored or can be left blank when is_local
 | Hugging Face | `huggingface`   | No     | Use models from Hugging Face Inference API.       | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
 | TogetherAI   | `togetherAI`    | No     | Use various open-source models via TogetherAI API.| [api.together.ai/settings/api-keys](https://api.together.ai/settings/api-keys) |
 | OpenRouter   | `openrouter`    | No     | Use OpenRouter Models| [https://openrouter.ai/](https://openrouter.ai/) |
+ | Sapient HRM  | `sapient_hrm`   | No     | Use Sapient HRM AI (Experimental). Requires valid endpoint or API key setup. | - |
+ | Google Colab | `colab`         | No*    | Use a Google Colab backend (via ngrok/tunnel). Treats it as a remote server. | - |
+ | Auto         | `auto`          | Yes/No | Automatically attempts to find the best available free provider (Ollama, LM-Studio, Colab, HuggingFace). | - |
 
 *Note:*
+*   **Auto Mode**: Setting `provider_name = auto` will make AgenticSeek cycle through common free providers to find a working one.
 *   We advise against using `gpt-4o` or other OpenAI models for complex web browsing and task planning as current prompt optimizations are geared towards models like Deepseek.
 *   Coding/bash tasks might encounter issues with Gemini, as it may not strictly follow formatting prompts optimized for Deepseek.
 *   The `provider_server_address` in `config.ini` is generally not used when `is_local = False` as the API endpoint is usually hardcoded in the respective provider's library.
