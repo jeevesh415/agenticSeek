@@ -5,11 +5,25 @@ import subprocess
 import time
 from urllib.parse import urlparse
 
-import httpx
-import requests
+try:
+    import httpx
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    httpx = None
+
+try:
+    import requests
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    requests = None
 from dotenv import load_dotenv
-from ollama import Client as OllamaClient
-from openai import OpenAI
+try:
+    from ollama import Client as OllamaClient
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    OllamaClient = None
+
+try:
+    from openai import OpenAI
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    OpenAI = None
 
 from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
@@ -119,6 +133,8 @@ class Provider:
         """
         Use a remote server with LLM to generate text.
         """
+        if requests is None:
+            raise ModuleNotFoundError("requests is required for provider 'server'.")
         thought = ""
         route_setup = f"{self.server_ip}/setup"
         route_gen = f"{self.server_ip}/generate"
@@ -159,6 +175,8 @@ class Provider:
         """
         Use local or remote Ollama server to generate text.
         """
+        if OllamaClient is None:
+            raise ModuleNotFoundError("ollama is required for provider 'ollama'.")
         thought = ""
         host = f"{self.internal_url}:11434" if self.is_local else f"http://{self.server_address}"
         client = OllamaClient(host=host)
@@ -173,11 +191,11 @@ class Provider:
                 if verbose:
                     print(chunk["message"]["content"], end="", flush=True)
                 thought += chunk["message"]["content"]
-        except httpx.ConnectError as e:
-            raise Exception(
-                f"\nOllama connection failed at {host}. Check if the server is running."
-            ) from e
         except Exception as e:
+            if httpx is not None and isinstance(e, httpx.ConnectError):
+                raise Exception(
+                    f"\nOllama connection failed at {host}. Check if the server is running."
+                ) from e
             if hasattr(e, 'status_code') and e.status_code == 404:
                 animate_thinking(f"Downloading {self.model}...")
                 client.pull(self.model)
@@ -210,6 +228,8 @@ class Provider:
         """
         Use openai to generate text.
         """
+        if OpenAI is None:
+            raise ModuleNotFoundError("openai is required for provider 'openai'.")
         base_url = self.server_ip
         if self.is_local and self.in_docker:
             try:

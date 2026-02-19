@@ -8,7 +8,10 @@ import asyncio
 from sources.utility import pretty_print, animate_thinking
 from sources.agents.agent import Agent
 from sources.tools.searxSearch import searxSearch
-from sources.browser import Browser
+try:
+    from sources.browser import Browser
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    Browser = None
 from sources.logger import Logger
 from sources.memory import Memory
 
@@ -25,9 +28,12 @@ class BrowserAgent(Agent):
         The Browser agent is an agent that navigate the web autonomously in search of answer
         """
         super().__init__(name, prompt_path, provider, verbose, browser)
-        self.tools = {
-            "web_search": searxSearch(),
-        }
+        self.tools = {}
+        try:
+            self.tools["web_search"] = searxSearch()
+        except Exception as e:
+            self.logger = Logger("browser_agent.log")
+            self.logger.warning(f"Web search tool disabled: {e}")
         self.role = "web"
         self.type = "browser_agent"
         self.browser = browser

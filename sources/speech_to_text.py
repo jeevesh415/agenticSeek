@@ -1,4 +1,9 @@
-from colorama import Fore
+try:
+    from colorama import Fore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    class _Fore:
+        RED = GREEN = RESET = ""
+    Fore = _Fore()
 from typing import List, Tuple, Type, Dict
 import queue
 import threading
