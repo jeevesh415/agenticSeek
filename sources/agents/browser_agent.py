@@ -340,6 +340,7 @@ class BrowserAgent(Agent):
             tuple containing the final answer and reasoning
         """
         complete = False
+        loop = asyncio.get_running_loop()
 
         animate_thinking(f"Thinking...", color="status")
         mem_begin_idx = self.memory.push('user', self.search_prompt(user_prompt))
@@ -371,15 +372,15 @@ class BrowserAgent(Agent):
             if len(extracted_form) > 0:
                 self.status_message = "Filling web form..."
                 pretty_print(f"Filling inputs form...", color="status")
-                fill_success = self.browser.fill_form(extracted_form)
-                page_text = self.get_page_text(limit_to_model_ctx=True)
+                fill_success = await loop.run_in_executor(self.executor, self.browser.fill_form, extracted_form)
+                page_text = await loop.run_in_executor(self.executor, self.get_page_text, True)
                 answer = self.handle_update_prompt(user_prompt, page_text, fill_success)
                 answer, reasoning = await self.llm_decide(prompt)
 
             if Action.FORM_FILLED.value in answer:
                 pretty_print(f"Filled form. Handling page update.", color="status")
-                page_text = self.get_page_text(limit_to_model_ctx=True)
-                self.navigable_links = self.browser.get_navigable()
+                page_text = await loop.run_in_executor(self.executor, self.get_page_text, True)
+                self.navigable_links = await loop.run_in_executor(self.executor, self.browser.get_navigable)
                 prompt = self.make_navigation_prompt(user_prompt, page_text)
                 continue
 
@@ -410,18 +411,18 @@ class BrowserAgent(Agent):
 
             animate_thinking(f"Navigating to {link}", color="status")
             if speech_module: speech_module.speak(f"Navigating to {link}")
-            nav_ok = self.browser.go_to(link)
+            nav_ok = await loop.run_in_executor(self.executor, self.browser.go_to, link)
             self.search_history.append(link)
             if not nav_ok:
                 pretty_print(f"Failed to navigate to {link}.", color="failure")
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
                 continue
             self.current_page = link
-            page_text = self.get_page_text(limit_to_model_ctx=True)
-            self.navigable_links = self.browser.get_navigable()
+            page_text = await loop.run_in_executor(self.executor, self.get_page_text, True)
+            self.navigable_links = await loop.run_in_executor(self.executor, self.browser.get_navigable)
             prompt = self.make_navigation_prompt(user_prompt, page_text)
             self.status_message = "Navigating..."
-            self.browser.screenshot()
+            await loop.run_in_executor(self.executor, self.browser.screenshot)
 
         pretty_print("Exited navigation, starting to summarize finding...", color="status")
         prompt = self.conclude_prompt(user_prompt)
