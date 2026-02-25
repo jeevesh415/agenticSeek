@@ -113,22 +113,63 @@ class Speech():
         return parts[-1] if parts else path
     
     def shorten_paragraph(self, sentence):
-        #TODO find a better way, we would like to have the TTS not be annoying, speak only useful informations
         """
-        Find long paragraph like **explanation**: <long text> by keeping only the first sentence.
+        Shortens the text for TTS by summarizing long paragraphs and lists.
+        - Removes Markdown bold/italic markers.
+        - Truncates long paragraphs to the first sentence.
+        - Summarizes lists if they are too long.
         Args:
             sentence (str): The sentence to shorten
         Returns:
             str: The shortened sentence
         """
-        lines = sentence.split('\n')
-        lines_edited = []
-        for line in lines:
-            if line.startswith('**'):
-                lines_edited.append(line.split('.')[0])
+        blocks = sentence.split('\n\n')
+        shortened_blocks = []
+
+        for block in blocks:
+            lines = block.strip().split('\n')
+            if not lines or (len(lines) == 1 and not lines[0]):
+                continue
+
+            # Check if it looks like a list
+            is_list = any(re.match(r'^\s*([-*]|\d+\.)\s+', line) for line in lines)
+
+            if is_list:
+                if len(lines) > 4:
+                    kept_lines = lines[:4]
+                    shortened_blocks.append('\n'.join(kept_lines) + "\n... and others.")
+                else:
+                    shortened_blocks.append(block)
             else:
-                lines_edited.append(line)
-        return '\n'.join(lines_edited)
+                # Normal paragraph or Header paragraph
+                text = ' '.join(lines)
+
+                # Check if it WAS a header paragraph (starts with **)
+                has_header = block.strip().startswith('**')
+
+                # Remove bold/italic markers
+                text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+                text = re.sub(r'__(.*?)__', r'\1', text)
+
+                # Split into sentences based on language
+                if self.language == 'zh':
+                    sentences = re.split(r'(?<=[。！？])', text)
+                else:
+                    # English/others: Split by .!? followed by space (or end of string)
+                    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+                # Filter empty sentences
+                sentences = [s for s in sentences if s.strip()]
+
+                # Stricter threshold for header paragraphs
+                threshold = 1 if has_header else 3
+
+                if len(sentences) > threshold:
+                    shortened_blocks.append(sentences[0])
+                else:
+                    shortened_blocks.append(text)
+
+        return '\n\n'.join(shortened_blocks)
 
     def clean_sentence(self, sentence):
         """
