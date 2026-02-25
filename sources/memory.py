@@ -5,8 +5,17 @@ import os
 import sys
 import json
 from typing import List, Tuple, Type, Dict
-import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    torch = None
+
+try:
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    AutoTokenizer = None
+    AutoModelForSeq2SeqLM = None
 import configparser
 
 from sources.utility import timer_decorator, pretty_print, animate_thinking
@@ -31,9 +40,6 @@ class Memory():
         self.session_id = str(uuid.uuid4())
         self.conversation_folder = f"conversations/"
         self.session_recovered = False
-        if recover_last_session:
-            self.load_memory()
-            self.session_recovered = True
         # memory compression system
         self.model = None
         self.tokenizer = None
@@ -42,6 +48,9 @@ class Memory():
         self.model_provider = model_provider
         if self.memory_compression:
             self.download_model()
+        if recover_last_session:
+            self.load_memory()
+            self.session_recovered = True
 
     def get_ideal_ctx(self, model_name: str) -> int | None:
         """
@@ -68,6 +77,10 @@ class Memory():
     
     def download_model(self):
         """Download the model if not already downloaded."""
+        if AutoTokenizer is None or AutoModelForSeq2SeqLM is None:
+            self.logger.warning("transformers is not installed. Memory compression disabled.")
+            self.memory_compression = False
+            return
         animate_thinking("Loading memory compression model...", color="status")
         self.tokenizer = AutoTokenizer.from_pretrained("pszemraj/led-base-book-summary")
         self.model = AutoModelForSeq2SeqLM.from_pretrained("pszemraj/led-base-book-summary")
@@ -193,6 +206,8 @@ class Memory():
         return self.memory
 
     def get_cuda_device(self) -> str:
+        if torch is None:
+            return "cpu"
         if torch.backends.mps.is_available():
             return "mps"
         elif torch.cuda.is_available():
