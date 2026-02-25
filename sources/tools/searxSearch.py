@@ -1,4 +1,3 @@
-import requests
 import httpx
 from bs4 import BeautifulSoup
 import os
@@ -26,38 +25,39 @@ class searxSearch(Tools):
         if not self.base_url:
             raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
 
-    def link_valid(self, link):
+    async def link_valid(self, client: httpx.AsyncClient, link: str) -> str:
         """check if a link is valid."""
-        # TODO find a better way
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
-            response = requests.get(link, headers=headers, timeout=5)
-            status = response.status_code
-            if status == 200:
-                content = response.text.lower()
-                if any(keyword in content for keyword in self.paywall_keywords):
-                    return "Status: Possible Paywall"
-                return "Status: OK"
-            elif status == 404:
-                return "Status: 404 Not Found"
-            elif status == 403:
-                return "Status: 403 Forbidden"
-            else:
-                return f"Status: {status} {response.reason}"
-        except requests.exceptions.RequestException as e:
-            return f"Error: {str(e)}"
+            async with client.stream("GET", link, headers=headers, timeout=5, follow_redirects=True) as response:
+                status = response.status_code
+                if status == 200:
+                    # Check for paywall keywords in the first 2KB of content
+                    chunk = await response.aread(2048)
+                    content = chunk.decode('utf-8', errors='ignore').lower()
 
-    def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+                    if any(keyword in content for keyword in self.paywall_keywords):
+                        return "Status: Possible Paywall"
+                    return "Status: OK"
+                elif status == 404:
+                    return "Status: 404 Not Found"
+                elif status == 403:
+                    return "Status: 403 Forbidden"
+                else:
+                    return f"Status: {status} {response.reason_phrase}"
+        except httpx.RequestError as e:
+            return f"Error: {str(e)}"
+        except Exception as e:
+             return f"Error: {str(e)}"
+
+    async def check_all_links(self, links):
+        """Check all links, one by one (concurrently)."""
+        async with httpx.AsyncClient(verify=True) as client:
+            tasks = [self.link_valid(client, link) for link in links]
+            return await asyncio.gather(*tasks)
     
     async def execute(self, blocks: list, safety: bool = False) -> str:
         """Executes a search query against a SearxNG instance using POST and extracts URLs and titles."""
