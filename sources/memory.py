@@ -4,6 +4,7 @@ import uuid
 import os
 import sys
 import json
+import threading
 from typing import List, Tuple, Type, Dict
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
@@ -31,15 +32,22 @@ class Memory():
         self.session_id = str(uuid.uuid4())
         self.conversation_folder = f"conversations/"
         self.session_recovered = False
-        if recover_last_session:
-            self.load_memory()
-            self.session_recovered = True
+
+        # Locks for thread safety
+        self.lock = threading.Lock()
+        self.compression_lock = threading.Lock()
+
         # memory compression system
         self.model = None
         self.tokenizer = None
         self.device = self.get_cuda_device()
         self.memory_compression = memory_compression
         self.model_provider = model_provider
+
+        if recover_last_session:
+            self.load_memory()
+            self.session_recovered = True
+
         if self.memory_compression:
             self.download_model()
 
@@ -87,7 +95,8 @@ class Memory():
             os.makedirs(save_path)
         filename = self.get_filename()
         path = os.path.join(save_path, filename)
-        json_memory = json.dumps(self.memory)
+        with self.lock:
+            json_memory = json.dumps(self.memory)
         with open(path, 'w') as f:
             self.logger.info(f"Saved memory json at {path}")
             f.write(json_memory)
@@ -145,15 +154,21 @@ class Memory():
             pretty_print("Last session memory not found.", color="warning")
             return
         path = os.path.join(save_path, filename)
-        self.memory = self.load_json_file(path) 
-        if self.memory[-1]['role'] == 'user':
-            self.memory.pop()
-        self.compress()
+        loaded_memory = self.load_json_file(path)
+
+        with self.lock:
+            self.memory = loaded_memory
+            if self.memory and self.memory[-1]['role'] == 'user':
+                self.memory.pop()
+
+        # Blocking compression on load is safer/expected
+        self.compress(blocking=True)
         pretty_print("Session recovered successfully", color="success")
     
     def reset(self, memory: list = []) -> None:
         self.logger.info("Memory reset performed.")
-        self.memory = memory
+        with self.lock:
+            self.memory = memory
     
     def push(self, role: str, content: str) -> int:
         """Push a message to the memory."""
@@ -161,21 +176,25 @@ class Memory():
         if ideal_ctx is not None:
             if self.memory_compression and len(content) > ideal_ctx * 1.5:
                 self.logger.info(f"Compressing memory: Content {len(content)} > {ideal_ctx} model context.")
-                self.compress()
-        curr_idx = len(self.memory)
-        if self.memory[curr_idx-1]['content'] == content:
-            pretty_print("Warning: same message have been pushed twice to memory", color="error")
-        time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if config["MAIN"]["provider_name"] == "openrouter":
-            self.memory.append({'role': role, 'content': content})
-        else:
-            self.memory.append({'role': role, 'content': content, 'time': time_str, 'model_used': self.model_provider})
-        return curr_idx-1
+                # Run compression in background
+                self.compress(blocking=False)
+
+        with self.lock:
+            curr_idx = len(self.memory)
+            if curr_idx > 0 and self.memory[curr_idx-1]['content'] == content:
+                pretty_print("Warning: same message have been pushed twice to memory", color="error")
+            time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if config["MAIN"]["provider_name"] == "openrouter":
+                self.memory.append({'role': role, 'content': content})
+            else:
+                self.memory.append({'role': role, 'content': content, 'time': time_str, 'model_used': self.model_provider})
+            return len(self.memory) - 1
     
     def clear(self) -> None:
         """Clear all memory except system prompt"""
         self.logger.info("Memory clear performed.")
-        self.memory = self.memory[:1]
+        with self.lock:
+            self.memory = self.memory[:1]
     
     def clear_section(self, start: int, end: int) -> None:
         """
@@ -186,11 +205,13 @@ class Memory():
         """
         self.logger.info(f"Clearing memory section {start} to {end}.")
         start = max(0, start) + 1
-        end = min(end, len(self.memory)-1) + 2
-        self.memory = self.memory[:start] + self.memory[end:]
+        with self.lock:
+            end = min(end, len(self.memory)-1) + 2
+            self.memory = self.memory[:start] + self.memory[end:]
     
     def get(self) -> list:
-        return self.memory
+        with self.lock:
+            return list(self.memory) # Return a copy to be safe
 
     def get_cuda_device(self) -> str:
         if torch.backends.mps.is_available():
@@ -216,6 +237,8 @@ class Memory():
             return text
         max_length = len(text) // 2 if len(text) > min_length*2 else min_length*2
         input_text = "summarize: " + text
+
+        # Generation is CPU/GPU intensive but releases GIL in PyTorch/Transformers usually
         inputs = self.tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
         summary_ids = self.model.generate(
             inputs['input_ids'],
@@ -226,24 +249,75 @@ class Memory():
             early_stopping=True
         )
         summary = self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        summary.replace('summary:', '')
+        summary = summary.replace('summary:', '') # Use assignment to handle replace properly (strings are immutable)
         self.logger.info(f"Memory summarized from len {len(text)} to {len(summary)}.")
         self.logger.info(f"Summarized text:\n{summary}")
         return summary
     
-    #@timer_decorator
-    def compress(self) -> str:
-        """
-        Compress (summarize) the memory using the model.
-        """
+    def _compress_worker(self):
+        """Worker function for background compression."""
+        try:
+            self._compress_logic()
+        finally:
+            self.compression_lock.release()
+
+    def _compress_logic(self):
+        """The actual compression logic."""
         if self.tokenizer is None or self.model is None:
             self.logger.warning("No tokenizer or model to perform memory compression.")
             return
-        for i in range(len(self.memory)):
-            if self.memory[i]['role'] == 'system':
-                continue
-            if len(self.memory[i]['content']) > 1024:
-                self.memory[i]['content'] = self.summarize(self.memory[i]['content'])
+
+        # 1. Identify candidates (holding lock briefly)
+        candidates = []
+        with self.lock:
+            for item in self.memory:
+                if item['role'] == 'system':
+                    continue
+                if len(item['content']) > 1024:
+                    candidates.append(item)
+
+        # 2. Compress each candidate
+        # Note: We iterate over the candidate dict objects. Even if self.memory changes structure,
+        # the dict objects persist if we hold a reference (in candidates).
+        # We update the dict content in place.
+        for item in candidates:
+            # Check if content is still long (it might have been compressed by another thread? Unlikely due to lock)
+            if len(item['content']) > 1024:
+                # Perform heavy summarization without the main lock
+                summary = self.summarize(item['content'])
+
+                # Update the item with the main lock
+                with self.lock:
+                    item['content'] = summary
+
+    #@timer_decorator
+    def compress(self, blocking: bool = True) -> None:
+        """
+        Compress (summarize) the memory using the model.
+        Args:
+            blocking (bool): If True, runs in current thread. If False, runs in background thread.
+        """
+        if not self.memory_compression:
+            return
+
+        # If blocking, just run logic (assuming caller handles concurrency or we don't care about blocking)
+        # But wait, we still want to ensure only one compression runs at a time.
+
+        if blocking:
+            if self.compression_lock.acquire(blocking=True):
+                try:
+                    self._compress_logic()
+                finally:
+                    self.compression_lock.release()
+        else:
+            # Non-blocking: try to acquire lock without blocking
+            if self.compression_lock.acquire(blocking=False):
+                # Start thread
+                t = threading.Thread(target=self._compress_worker)
+                t.daemon = True # Daemon thread so it doesn't block shutdown
+                t.start()
+            else:
+                self.logger.info("Compression already running in background.")
     
     def trim_text_to_max_ctx(self, text: str) -> str:
         """
@@ -300,4 +374,3 @@ Ensure the file exists in the specified location.
     memory.compress()
     print("\n---\nmemory after:", memory.get())
     #memory.save_memory()
-    
