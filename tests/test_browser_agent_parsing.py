@@ -1,16 +1,64 @@
 import unittest
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # Add project root to Python path
+from unittest.mock import MagicMock
+
+# Add project root to Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Mock 3rd party dependencies
+sys.modules["torch"] = MagicMock()
+sys.modules["transformers"] = MagicMock()
+sys.modules["pyaudio"] = MagicMock()
+sys.modules["librosa"] = MagicMock()
+sys.modules["numpy"] = MagicMock()
+sys.modules["scipy"] = MagicMock()
+sys.modules["selenium"] = MagicMock()
+sys.modules["selenium.webdriver"] = MagicMock()
+sys.modules["selenium.webdriver.chrome.options"] = MagicMock()
+sys.modules["selenium.webdriver.chrome.service"] = MagicMock()
+sys.modules["selenium.webdriver.common.by"] = MagicMock()
+sys.modules["selenium.webdriver.support.ui"] = MagicMock()
+sys.modules["selenium.webdriver.support"] = MagicMock()
+sys.modules["selenium.common.exceptions"] = MagicMock()
+sys.modules["selenium.webdriver.common.action_chains"] = MagicMock()
+sys.modules["bs4"] = MagicMock()
+sys.modules["markdownify"] = MagicMock()
+sys.modules["fake_useragent"] = MagicMock()
+sys.modules["selenium_stealth"] = MagicMock()
+sys.modules["undetected_chromedriver"] = MagicMock()
+sys.modules["chromedriver_autoinstaller"] = MagicMock()
+sys.modules["certifi"] = MagicMock()
+# sys.modules["ssl"] = MagicMock() # Removed because it breaks requests/urllib3
+sys.modules["httpx"] = MagicMock()
+sys.modules["dotenv"] = MagicMock()
+
+# Do NOT mock sources modules here, so other tests can use them correctly.
+# If BrowserAgent needs them, it will import the real ones (which use the mocked 3rd party libs above)
+
 from sources.agents.browser_agent import BrowserAgent
 
 class TestBrowserAgentParsing(unittest.TestCase):
     def setUp(self):
+        # Set environment variable required by searxSearch
+        os.environ["SEARXNG_BASE_URL"] = "http://localhost:8080"
+
         # Initialize a basic BrowserAgent instance for testing
+        provider_mock = MagicMock()
+        provider_mock.get_model_name.return_value = "test-model"
+
+        # BrowserAgent creates Browser and searxSearch instances.
+        # Since we mocked their dependencies, they should instantiate but might fail if they do complex logic in __init__
+        # Browser __init__ takes a driver.
+
+        # We need to mock Browser class if we pass it to BrowserAgent
+        browser_mock = MagicMock()
+
         self.agent = BrowserAgent(
             name="TestAgent",
-            prompt_path="../prompts/base/browser_agent.txt",
-            provider=None
+            prompt_path="prompts/base/browser_agent.txt",
+            provider=provider_mock,
+            browser=browser_mock
         )
 
     def test_extract_links(self):
