@@ -248,9 +248,13 @@ class BrowserAgent(Agent):
         self.logger.warning("No suitable link selected.")
         return None
     
-    def get_page_text(self, limit_to_model_ctx = False) -> str:
+    async def _run_browser_cmd(self, func, *args):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, func, *args)
+
+    async def get_page_text(self, limit_to_model_ctx = False) -> str:
         """Get the text content of the current page."""
-        page_text = self.browser.get_text()
+        page_text = await self._run_browser_cmd(self.browser.get_text)
         if limit_to_model_ctx:
             #page_text = self.memory.compress_text_to_max_ctx(page_text)
             page_text = self.memory.trim_text_to_max_ctx(page_text)
@@ -371,15 +375,15 @@ class BrowserAgent(Agent):
             if len(extracted_form) > 0:
                 self.status_message = "Filling web form..."
                 pretty_print(f"Filling inputs form...", color="status")
-                fill_success = self.browser.fill_form(extracted_form)
-                page_text = self.get_page_text(limit_to_model_ctx=True)
+                fill_success = await self._run_browser_cmd(self.browser.fill_form, extracted_form)
+                page_text = await self.get_page_text(limit_to_model_ctx=True)
                 answer = self.handle_update_prompt(user_prompt, page_text, fill_success)
                 answer, reasoning = await self.llm_decide(prompt)
 
             if Action.FORM_FILLED.value in answer:
                 pretty_print(f"Filled form. Handling page update.", color="status")
-                page_text = self.get_page_text(limit_to_model_ctx=True)
-                self.navigable_links = self.browser.get_navigable()
+                page_text = await self.get_page_text(limit_to_model_ctx=True)
+                self.navigable_links = await self._run_browser_cmd(self.browser.get_navigable)
                 prompt = self.make_navigation_prompt(user_prompt, page_text)
                 continue
 
@@ -410,18 +414,18 @@ class BrowserAgent(Agent):
 
             animate_thinking(f"Navigating to {link}", color="status")
             if speech_module: speech_module.speak(f"Navigating to {link}")
-            nav_ok = self.browser.go_to(link)
+            nav_ok = await self._run_browser_cmd(self.browser.go_to, link)
             self.search_history.append(link)
             if not nav_ok:
                 pretty_print(f"Failed to navigate to {link}.", color="failure")
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
                 continue
             self.current_page = link
-            page_text = self.get_page_text(limit_to_model_ctx=True)
-            self.navigable_links = self.browser.get_navigable()
+            page_text = await self.get_page_text(limit_to_model_ctx=True)
+            self.navigable_links = await self._run_browser_cmd(self.browser.get_navigable)
             prompt = self.make_navigation_prompt(user_prompt, page_text)
             self.status_message = "Navigating..."
-            self.browser.screenshot()
+            await self._run_browser_cmd(self.browser.screenshot)
 
         pretty_print("Exited navigation, starting to summarize finding...", color="status")
         prompt = self.conclude_prompt(user_prompt)
