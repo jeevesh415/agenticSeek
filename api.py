@@ -7,7 +7,7 @@ import configparser
 import asyncio
 import time
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -143,6 +143,115 @@ def initialize_system():
 interaction = initialize_system()
 is_generating = False
 query_resp_history = []
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting to client: {e}")
+
+manager = ConnectionManager()
+
+async def monitor_and_broadcast():
+    """
+    Monitor interaction state and broadcast updates to connected clients.
+    """
+    last_broadcast_answer = None
+    last_status = None
+    last_screenshot_timestamp = 0
+    screenshot_path = ".screenshots/updated_screen.png"
+
+    while True:
+        try:
+            await asyncio.sleep(0.1) # Check every 100ms
+
+            # 1. Check for screenshot update
+            current_screenshot_timestamp = 0
+            if os.path.exists(screenshot_path):
+                try:
+                    current_screenshot_timestamp = os.path.getmtime(screenshot_path)
+                except OSError:
+                    pass # File might be being written to
+
+            screenshot_updated = False
+            if current_screenshot_timestamp > last_screenshot_timestamp:
+                last_screenshot_timestamp = current_screenshot_timestamp
+                screenshot_updated = True
+
+            # 2. Check for agent update
+            if interaction.current_agent:
+                current_answer = interaction.current_agent.last_answer
+                current_status = interaction.current_agent.get_status_message
+
+                # Check if this answer is already in history (stale)
+                is_stale = False
+                if query_resp_history:
+                     last_final = query_resp_history[-1]
+                     if last_final.get("answer") == current_answer and last_final.get("agent_name") == interaction.current_agent.agent_name:
+                         is_stale = True
+
+                should_broadcast_answer = (current_answer != last_broadcast_answer and current_answer and not is_stale)
+                should_broadcast_status = (current_status != last_status)
+
+                if should_broadcast_answer or should_broadcast_status or screenshot_updated:
+
+                    uid = str(uuid.uuid4())
+                    query_resp = {
+                        "done": "false",
+                        "answer": current_answer,
+                        "reasoning": interaction.current_agent.last_reasoning,
+                        "agent_name": interaction.current_agent.agent_name,
+                        "success": interaction.current_agent.success,
+                        "blocks": {f'{i}': block.jsonify() for i, block in enumerate(interaction.get_last_blocks_result())},
+                        "status": current_status,
+                        "uid": uid,
+                        "screenshot_timestamp": current_screenshot_timestamp if screenshot_updated else None
+                    }
+
+                    await manager.broadcast(query_resp)
+
+                    if should_broadcast_answer:
+                        last_broadcast_answer = current_answer
+
+                    if should_broadcast_status:
+                        last_status = current_status
+
+            elif screenshot_updated:
+                # Even if no agent is active, we might want to push screenshot updates (e.g. manual browsing)
+                 await manager.broadcast({"screenshot_timestamp": current_screenshot_timestamp})
+
+        except Exception as e:
+            logger.error(f"Error in monitor_and_broadcast: {e}")
+            await asyncio.sleep(1) # Backoff on error
+
+@api.on_event("startup")
+async def startup_event():
+    asyncio.create_task(monitor_and_broadcast())
+
+@api.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # We don't expect messages from client for now, but we need to keep connection open
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(websocket)
 
 @api.get("/screenshot")
 async def get_screenshot():

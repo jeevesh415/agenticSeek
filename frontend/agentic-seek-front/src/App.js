@@ -20,23 +20,91 @@ function App() {
   const [status, setStatus] = useState("Agents ready");
   const [expandedReasoning, setExpandedReasoning] = useState(new Set());
   const messagesEndRef = useRef(null);
+  const wsRef = useRef(null);
 
-  const fetchLatestAnswer = useCallback(async () => {
-    try {
-      const res = await axios.get(`${BACKEND_URL}/latest_answer`);
-      const data = res.data;
-
-      updateData(data);
-      if (!data.answer || data.answer.trim() === "") {
-        return;
+  useEffect(() => {
+    checkHealth();
+    connectWebSocket();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
       }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connectWebSocket = () => {
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    let wsUrl = BACKEND_URL;
+    if (wsUrl.startsWith("http")) {
+       wsUrl = wsUrl.replace(/^http/, "ws");
+    } else if (wsUrl.startsWith("//")) {
+       wsUrl = `${wsProtocol}${wsUrl}`;
+    } else {
+       wsUrl = `${wsProtocol}//${wsUrl}`;
+    }
+
+    if (!wsUrl.endsWith("/")) wsUrl += "/";
+    wsUrl += "ws";
+
+    console.log("Connecting to WebSocket:", wsUrl);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      setIsOnline(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleBackendUpdate(data);
+      } catch (e) {
+        console.error("Error parsing WebSocket message:", e);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket disconnected");
+      setIsOnline(false);
+      setTimeout(() => {
+        connectWebSocket();
+      }, 3000);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      ws.close();
+    };
+  };
+
+  const handleBackendUpdate = (data) => {
+    if (data.screenshot_timestamp && Object.keys(data).length === 1) {
+       fetchScreenshot(data.screenshot_timestamp);
+       return;
+    }
+
+    updateData(data);
+
+    if (data.screenshot_timestamp) {
+        fetchScreenshot(data.screenshot_timestamp);
+    }
+
+    if (!data.answer || data.answer.trim() === "") {
+        return;
+    }
+
+    setMessages((prevMessages) => {
       const normalizedNewAnswer = normalizeAnswer(data.answer);
-      const answerExists = messages.some(
+      const answerExists = prevMessages.some(
         (msg) => normalizeAnswer(msg.content) === normalizedNewAnswer
       );
       if (!answerExists) {
-        setMessages((prev) => [
-          ...prev,
+        setTimeout(scrollToBottom, 100);
+        setStatus(data.status);
+        return [
+          ...prevMessages,
           {
             type: "agent",
             content: data.answer,
@@ -45,25 +113,12 @@ function App() {
             status: data.status,
             uid: data.uid,
           },
-        ]);
-        setStatus(data.status);
-        scrollToBottom();
+        ];
       } else {
-        console.log("Duplicate answer detected, skipping:", data.answer);
+        return prevMessages;
       }
-    } catch (error) {
-      console.error("Error fetching latest answer:", error);
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      checkHealth();
-      fetchLatestAnswer();
-      fetchScreenshot();
-    }, 3000);
-    return () => clearInterval(intervalId);
-  }, [fetchLatestAnswer]);
+    });
+  };
 
   const checkHealth = async () => {
     try {
@@ -76,9 +131,8 @@ function App() {
     }
   };
 
-  const fetchScreenshot = async () => {
+  const fetchScreenshot = async (timestamp = new Date().getTime()) => {
     try {
-      const timestamp = new Date().getTime();
       const res = await axios.get(
         `${BACKEND_URL}/screenshots/updated_screen.png?timestamp=${timestamp}`,
         {
