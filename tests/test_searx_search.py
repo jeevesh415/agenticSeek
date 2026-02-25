@@ -115,5 +115,82 @@ class TestSearxSearch(IsolatedAsyncioTestCase):
         output = "Search completed successfully"
         self.assertFalse(self.search_tool.execution_failure_check(output))
 
+    async def test_link_valid_ok(self):
+        # Use MagicMock because stream is a sync method returning an async context manager
+        mock_client = unittest.mock.MagicMock(spec=httpx.AsyncClient)
+
+        # Mock the stream context manager
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.status_code = 200
+        mock_response.headers = {'Content-Type': 'text/html'}
+        mock_response.aread.return_value = b"This is a normal page content without paywalls."
+        mock_response.reason_phrase = "OK"
+
+        # Mock __aenter__ to return the response
+        mock_stream = unittest.mock.AsyncMock()
+        mock_stream.__aenter__.return_value = mock_response
+        mock_client.stream.return_value = mock_stream
+
+        status = await self.search_tool.link_valid(mock_client, "http://example.com")
+        self.assertEqual(status, "Status: OK")
+
+    async def test_link_valid_paywall(self):
+        mock_client = unittest.mock.MagicMock(spec=httpx.AsyncClient)
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.status_code = 200
+        mock_response.headers = {'Content-Type': 'text/html'}
+        mock_response.aread.return_value = b"This content is restricted. access denied for non-members."
+
+        mock_stream = unittest.mock.AsyncMock()
+        mock_stream.__aenter__.return_value = mock_response
+        mock_client.stream.return_value = mock_stream
+
+        status = await self.search_tool.link_valid(mock_client, "http://example.com/paywall")
+        self.assertEqual(status, "Status: Possible Paywall")
+
+    async def test_link_valid_404(self):
+        mock_client = unittest.mock.MagicMock(spec=httpx.AsyncClient)
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.status_code = 404
+
+        mock_stream = unittest.mock.AsyncMock()
+        mock_stream.__aenter__.return_value = mock_response
+        mock_client.stream.return_value = mock_stream
+
+        status = await self.search_tool.link_valid(mock_client, "http://example.com/404")
+        self.assertEqual(status, "Status: 404 Not Found")
+
+    async def test_check_all_links(self):
+        # Mock httpx.AsyncClient context manager
+        with unittest.mock.patch("httpx.AsyncClient", new_callable=unittest.mock.MagicMock) as mock_client_cls:
+            mock_client = unittest.mock.MagicMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            def stream_side_effect(method, url, **kwargs):
+                mock_stream = unittest.mock.AsyncMock()
+                mock_resp = unittest.mock.AsyncMock()
+                mock_stream.__aenter__.return_value = mock_resp
+
+                if "ok" in url:
+                    mock_resp.status_code = 200
+                    mock_resp.headers = {'Content-Type': 'text/html'}
+                    mock_resp.aread.return_value = b"ok content"
+                elif "paywall" in url:
+                    mock_resp.status_code = 200
+                    mock_resp.headers = {'Content-Type': 'text/html'}
+                    mock_resp.aread.return_value = b"access denied"
+                else:
+                    mock_resp.status_code = 404
+
+                return mock_stream
+
+            mock_client.stream.side_effect = stream_side_effect
+
+            links = ["http://example.com/ok", "http://example.com/paywall", "http://example.com/missing"]
+            statuses = await self.search_tool.check_all_links(links)
+
+            expected_statuses = ["Status: OK", "Status: Possible Paywall", "Status: 404 Not Found"]
+            self.assertEqual(statuses, expected_statuses)
+
 if __name__ == '__main__':
     unittest.main()
