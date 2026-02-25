@@ -92,19 +92,44 @@ class FileFinder(Tools):
         Returns:
             str | None: The path to the file if found, None otherwise
         """
-        file_path = None
+        results = self.optimized_recursive_search(directory_path, [filename])
+        return results.get(filename)
+
+    def optimized_recursive_search(self, directory_path: str, filenames: list) -> dict:
+        """
+        Recursively searches for multiple files in a directory and its subdirectories in a single walk.
+        Args:
+            directory_path (str): The directory to search in
+            filenames (list): The list of filenames to search for
+        Returns:
+            dict: A mapping from each filename to its first found path (or None if not found)
+        """
+        results = {filename: None for filename in filenames}
+        filenames_to_find = set(filenames)
         excluded_files = [".pyc", ".o", ".so", ".a", ".lib", ".dll", ".dylib", ".so", ".git"]
+
         for root, dirs, files in os.walk(directory_path):
+            if not filenames_to_find:
+                break
             for f in files:
                 if f is None:
                     continue
                 if any(excluded_file in f for excluded_file in excluded_files):
                     continue
-                if filename.strip() in f.strip():
-                    file_path = os.path.join(root, f)
-                    return file_path
-        return None
-        
+
+                f_stripped = f.strip()
+                found_for_this_file = []
+                for filename in filenames_to_find:
+                    if filename.strip() in f_stripped:
+                        results[filename] = os.path.join(root, f)
+                        found_for_this_file.append(filename)
+
+                for filename in found_for_this_file:
+                    filenames_to_find.remove(filename)
+
+            if not filenames_to_find:
+                break
+        return results
 
     def execute(self, blocks: list, safety:bool = False) -> str:
         """
@@ -117,6 +142,17 @@ class FileFinder(Tools):
         if not blocks or not isinstance(blocks, list):
             return "Error: No valid filenames provided"
 
+        # Collect all filenames first
+        filenames = []
+        for block in blocks:
+            name = self.get_parameter_value(block, "name")
+            if name:
+                filenames.append(name)
+
+        # Perform single recursive search for all filenames
+        print("File finder: optimized recursive search started...")
+        search_results = self.optimized_recursive_search(self.work_dir, filenames)
+
         output = ""
         for block in blocks:
             filename = self.get_parameter_value(block, "name")
@@ -126,10 +162,10 @@ class FileFinder(Tools):
                 return output
             if action is None:
                 action = "info"
-            print("File finder: recursive search started...")
-            file_path = self.recursive_search(self.work_dir, filename)
+
+            file_path = search_results.get(filename)
             if file_path is None:
-                output = f"File: {filename} - not found\n"
+                output += f"File: {filename} - not found\n"
                 continue
             result = self.get_file_info(file_path)
             if "error" in result:
