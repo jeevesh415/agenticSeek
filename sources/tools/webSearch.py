@@ -1,5 +1,4 @@
 import os
-import requests
 import dotenv
 import asyncio
 import httpx
@@ -26,6 +25,32 @@ class webSearch(Tools):
         self.paywall_keywords = [
             "subscribe", "login to continue", "access denied", "restricted content", "404", "this page is not working"
         ]
+
+    def _run_async(self, coro):
+        """Helper to run async coroutines from synchronous context."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If we are in a running loop, we must run the new loop in a separate thread
+            result = []
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    res = new_loop.run_until_complete(coro)
+                    result.append(res)
+                finally:
+                    new_loop.close()
+
+            t = threading.Thread(target=run_in_thread)
+            t.start()
+            t.join()
+            return result[0]
+        else:
+            return asyncio.run(coro)
 
     async def link_valid_async(self, client, link):
         """check if a link is valid asynchronously."""
@@ -59,29 +84,41 @@ class webSearch(Tools):
 
     def check_all_links(self, links):
         """Check all links, one by one (asynchronously)."""
+        return self._run_async(self.check_all_links_async(links))
+
+    async def execute_async(self, query: str) -> str:
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = None
+            url = "https://serpapi.com/search"
+            params = {
+                "q": query,
+                "api_key": self.api_key,
+                "num": 50,
+                "output": "json"
+            }
+            async with httpx.AsyncClient(verify=True) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
 
-        if loop and loop.is_running():
-            # If we are in a running loop, we must run the new loop in a separate thread
-            result = []
-            def run_in_thread():
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                try:
-                    res = new_loop.run_until_complete(self.check_all_links_async(links))
-                    result.append(res)
-                finally:
-                    new_loop.close()
-
-            t = threading.Thread(target=run_in_thread)
-            t.start()
-            t.join()
-            return result[0]
-        else:
-            return asyncio.run(self.check_all_links_async(links))
+            results = []
+            if "organic_results" in data and len(data["organic_results"]) > 0:
+                organic_results = data["organic_results"][:50]
+                links = [result.get("link", "No link available") for result in organic_results]
+                statuses = await self.check_all_links_async(links)
+                for result, status in zip(organic_results, statuses):
+                    if not "OK" in status:
+                        continue
+                    title = result.get("title", "No title")
+                    snippet = result.get("snippet", "No snippet available")
+                    link = result.get("link", "No link available")
+                    results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
+                return "\n\n".join(results)
+            else:
+                return "No results found for the query."
+        except httpx.RequestError as e:
+            return f"Error during web search: {str(e)}"
+        except Exception as e:
+            return f"Unexpected error: {str(e)}"
 
     def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
@@ -92,37 +129,7 @@ class webSearch(Tools):
             if not query:
                 return "Error: No search query provided."
 
-            try:
-                url = "https://serpapi.com/search"
-                params = {
-                    "q": query,
-                    "api_key": self.api_key,
-                    "num": 50,
-                    "output": "json"
-                }
-                response = requests.get(url, params=params)
-                response.raise_for_status()
-
-                data = response.json()
-                results = []
-                if "organic_results" in data and len(data["organic_results"]) > 0:
-                    organic_results = data["organic_results"][:50]
-                    links = [result.get("link", "No link available") for result in organic_results]
-                    statuses = self.check_all_links(links)
-                    for result, status in zip(organic_results, statuses):
-                        if not "OK" in status:
-                            continue
-                        title = result.get("title", "No title")
-                        snippet = result.get("snippet", "No snippet available")
-                        link = result.get("link", "No link available")
-                        results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
-                    return "\n\n".join(results)
-                else:
-                    return "No results found for the query."
-            except requests.RequestException as e:
-                return f"Error during web search: {str(e)}"
-            except Exception as e:
-                return f"Unexpected error: {str(e)}"
+            return self._run_async(self.execute_async(query))
         return "No search performed"
 
     def execution_failure_check(self, output: str) -> bool:
