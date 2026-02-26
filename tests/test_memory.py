@@ -47,7 +47,7 @@ class TestMemory(unittest.TestCase):
 
     def test_push(self):
         index = self.memory.push("user", "Hello")
-        self.assertEqual(index, 0)
+        self.assertEqual(index, 1)
         self.assertEqual(len(self.memory.memory), 2)
         self.assertEqual(self.memory.memory[1]['role'], "user")
         self.assertEqual(self.memory.memory[1]['content'], "Hello")
@@ -64,7 +64,7 @@ class TestMemory(unittest.TestCase):
         self.memory.push("user", "sys feedback: error")
         self.memory.push("assistant", "<corrected code>")
         mem_end_idx = self.memory.push("user", "according to search...")
-        self.memory.clear_section(mem_begin_idx+1, mem_end_idx-1)
+        self.memory.clear_section(mem_begin_idx, mem_end_idx-2)
         self.assertEqual(len(self.memory.memory), 3) # 3 msg with sys msg
         self.assertEqual(self.memory.memory[0]['role'], "system")
 
