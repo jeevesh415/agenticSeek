@@ -60,10 +60,12 @@ function App() {
     const intervalId = setInterval(() => {
       checkHealth();
       fetchLatestAnswer();
-      fetchScreenshot();
+      if (currentView === "screenshot") {
+        fetchScreenshot();
+      }
     }, 3000);
     return () => clearInterval(intervalId);
-  }, [fetchLatestAnswer]);
+  }, [fetchLatestAnswer, currentView]);
 
   const checkHealth = async () => {
     try {
