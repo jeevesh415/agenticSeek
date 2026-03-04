@@ -69,7 +69,8 @@ class CoderAgent(Agent):
             animate_thinking("Executing code...", color="status")
             self.status_message = "Executing code..."
             self.logger.info(f"Attempt {attempt + 1}:\n{answer}")
-            exec_success, feedback = self.execute_modules(answer)
+            loop = asyncio.get_event_loop()
+            exec_success, feedback = await loop.run_in_executor(None, self.execute_modules, answer)
             self.logger.info(f"Execution result: {exec_success}")
             answer = self.remove_blocks(answer)
             self.last_answer = answer
