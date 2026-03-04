@@ -132,15 +132,39 @@ function App() {
   };
 
   const updateData = (data) => {
-    setResponseData((prev) => ({
-      ...prev,
-      blocks: data.blocks || prev.blocks || null,
-      done: data.done,
-      answer: data.answer,
-      agent_name: data.agent_name,
-      status: data.status,
-      uid: data.uid,
-    }));
+    setResponseData((prev) => {
+      const newBlocks = data.blocks || prev?.blocks || null;
+      const newDone = data.done;
+      const newAnswer = data.answer;
+      const newAgentName = data.agent_name;
+      const newStatus = data.status;
+      const newUid = data.uid;
+
+      if (prev) {
+        const blocksChanged =
+          JSON.stringify(prev.blocks) !== JSON.stringify(newBlocks);
+        if (
+          !blocksChanged &&
+          prev.done === newDone &&
+          prev.answer === newAnswer &&
+          prev.agent_name === newAgentName &&
+          prev.status === newStatus &&
+          prev.uid === newUid
+        ) {
+          return prev;
+        }
+      }
+
+      return {
+        ...prev,
+        blocks: newBlocks,
+        done: newDone,
+        answer: newAnswer,
+        agent_name: newAgentName,
+        status: newStatus,
+        uid: newUid,
+      };
+    });
   };
 
   const handleStop = async (e) => {
