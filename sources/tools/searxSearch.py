@@ -3,6 +3,7 @@ import httpx
 from bs4 import BeautifulSoup
 import os
 import asyncio
+from collections import OrderedDict
 
 if __name__ == "__main__": # if running as a script for individual testing
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -25,6 +26,9 @@ class searxSearch(Tools):
         ]
         if not self.base_url:
             raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
+
+        self.cache = OrderedDict()
+        self.cache_limit = 100
 
     def link_valid(self, link):
         """check if a link is valid."""
@@ -68,6 +72,10 @@ class searxSearch(Tools):
         if not query:
             return "Error: Empty search query provided."
 
+        if query in self.cache:
+            self.cache.move_to_end(query)
+            return self.cache[query]
+
         search_url = f"{self.base_url}/search"
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -97,7 +105,14 @@ class searxSearch(Tools):
                     results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
             if len(results) == 0:
                 return "No search results, web search failed."
-            return "\n\n".join(results)  # Return results as a single string, separated by newlines
+
+            result_str = "\n\n".join(results)  # Return results as a single string, separated by newlines
+
+            self.cache[query] = result_str
+            if len(self.cache) > self.cache_limit:
+                self.cache.popitem(last=False)
+
+            return result_str
         except httpx.HTTPError as e:
             raise Exception("\nSearxng search failed. did you run start_services.sh? is docker still running?") from e
 
