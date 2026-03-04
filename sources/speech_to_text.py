@@ -4,6 +4,7 @@ import queue
 import threading
 import numpy as np
 import time
+import re
 
 IMPORT_FOUND = True
 
@@ -121,11 +122,40 @@ class Transcript:
         
     def remove_hallucinations(self, text: str) -> str:
         """Remove model hallucinations from the text."""
-        # TODO find a better way to do this
-        common_hallucinations = ['Okay.', 'Thank you.', 'Thank you for watching.', 'You\'re', 'Oh', 'you', 'Oh.', 'Uh', 'Oh,', 'Mh-hmm', 'Hmm.', 'going to.', 'not.']
-        for hallucination in common_hallucinations:
-            text = text.replace(hallucination, "")
-        return text
+        # Common Whisper hallucinations, often tied to training data biases (e.g., YouTube)
+        # Note: We include optional leading/trailing punctuation and spaces in the regex
+        # to ensure clean removal.
+        hallucinations = [
+            r"(?i)\bthank you for watching[.!]*",
+            r"(?i)\bthanks for watching[.!]*",
+            r"(?i)\bplease subscribe to my channel[.!]*",
+            r"(?i)\bsubscribe for more[.!]*",
+            r"(?i)\bsubtitles? by amara\.org",
+            r"(?i)\btranslated by amara\.org",
+            r"(?i)^\s*thank you[.!]*\s*$", # only remove "thank you" if it's the whole string
+            r"(?i)^\s*okay\.\s*",      # can be at start of sentence, e.g. "Okay. Let's...", but not "Okay, I will"
+            r"(?i)^\s*hmm\.\s*",       # start of sentence
+            r"(?i)\s*hmm\.\s*$",       # or end of sentence
+            r"(?i)^\s*uh[.,!]*\s*",     # start of sentence
+        ]
+
+        cleaned_text = text
+        for pattern in hallucinations:
+            # Use regex substitution to replace hallucination with empty string
+            cleaned_text = re.sub(pattern, "", cleaned_text)
+
+        # Basic filtering of repetitive single words or loops (like "you. you. you.")
+        # that sometimes show up in Whisper hallucination
+        # Regex finds 3 or more repetitions of the same word (with optional punctuation)
+        cleaned_text = re.sub(r'(?i)\b(\w+)[.,!?\s]+\1[.,!?\s]+\1\b[.,!?\s]*', '', cleaned_text)
+
+        # Clean up multiple spaces
+        cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+
+        # Clean up any weird punctuation left behind at the start
+        cleaned_text = re.sub(r'^[,\s]+', '', cleaned_text)
+
+        return cleaned_text.strip()
     
     def transcript_job(self, audio_data: np.ndarray, sample_rate: int = 16000) -> str:
         """Transcribe the audio data."""
