@@ -110,6 +110,25 @@ class Agent():
         return description
     
     def load_prompt(self, file_path: str) -> str:
+        from pathlib import Path
+
+        candidate_paths = [Path(file_path)]
+        current_file = Path(__file__).resolve()
+        repo_root = current_file.parents[2]
+        cleaned_path = file_path.lstrip("./")
+        if file_path.startswith("../"):
+            cleaned_path = file_path[3:]
+        candidate_paths.append(repo_root / cleaned_path)
+
+        for path in candidate_paths:
+            try:
+                with open(path, 'r', encoding="utf-8") as f:
+                    return f.read()
+            except FileNotFoundError:
+                continue
+            except PermissionError:
+                raise PermissionError(f"Permission denied to read prompt file at path: {path}")
+
         try:
             with open(file_path, 'r', encoding="utf-8") as f:
                 return f.read()
