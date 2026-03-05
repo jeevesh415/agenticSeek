@@ -68,7 +68,13 @@ class Speech():
         if voice_idx >= len(self.voice_map[self.language]):
             pretty_print("Invalid voice number, using default voice", color="error")
             voice_idx = 0
+
+        # Shorten paragraph first to maintain structure needed for smart truncation
+        sentence = self.shorten_paragraph(sentence)
+
+        # Then clean up text for TTS (removing URLs, code blocks, etc.)
         sentence = self.clean_sentence(sentence)
+
         audio_file = f"{self.voice_folder}/sample_{self.voice_map[self.language][voice_idx]}.wav"
         self.voice = self.voice_map[self.language][voice_idx]
         generator = self.pipeline(
@@ -113,9 +119,10 @@ class Speech():
         return parts[-1] if parts else path
     
     def shorten_paragraph(self, sentence):
-        #TODO find a better way, we would like to have the TTS not be annoying, speak only useful informations
         """
-        Find long paragraph like **explanation**: <long text> by keeping only the first sentence.
+        Shortens text for TTS to make it less annoying and more useful.
+        Truncates long lists, removes filler transition sentences, and
+        keeps only the first sentence of paragraphs starting with **bold headers**.
         Args:
             sentence (str): The sentence to shorten
         Returns:
@@ -123,11 +130,61 @@ class Speech():
         """
         lines = sentence.split('\n')
         lines_edited = []
-        for line in lines:
-            if line.startswith('**'):
-                lines_edited.append(line.split('.')[0])
+
+        in_list = False
+        list_items = 0
+
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+
+            # 1. Filter out common "annoying" standalone transition sentences
+            lower_line = stripped_line.lower()
+            if lower_line in ["sure!", "here is the explanation:", "here are the details:", "here's the breakdown:"]:
+                continue
+
+            # 2. Check for List Items
+            list_match = re.match(r'^(\s*[-*]|\s*\d+\.)\s+(.+)', line)
+            if list_match:
+                if not in_list:
+                    in_list = True
+                    list_items = 1
+                    lines_edited.append(line)
+                else:
+                    list_items += 1
+                    if list_items <= 3:
+                        lines_edited.append(line)
+                    elif list_items == 4:
+                        # Count remaining list items starting from the 4th item (current line)
+                        remaining = 0
+                        for j in range(i, len(lines)):
+                            if re.match(r'^\s*([-*]|\d+\.)\s+', lines[j]):
+                                remaining += 1
+                            else:
+                                break
+                        if remaining > 0:
+                            item_word = "item" if remaining == 1 else "items"
+                            lines_edited.append(f"and {remaining} more {item_word}.")
+                continue
+
+            else:
+                in_list = False
+                list_items = 0
+
+            # 3. Check for **Header** lines and shorten to first sentence
+            if stripped_line.startswith('**'):
+                # Regex to find sentence end, avoiding common abbreviations
+                # We look for ., !, or ? followed by a space or end of string.
+                # We use negative lookbehinds for Dr., Mr., Mrs., Ms., Prof., Sr., Jr., Ph.D.
+                match = re.search(r'(?<!\bMr)(?<!\bDr)(?<!\bMrs)(?<!\bMs)(?<!\bProf)(?<!\bSr)(?<!\bJr)(?<!\bPh\.D)(?<!\bvs)(?<!\betc)(?<!\be\.g)(?<!\bi\.e)[.?!](?=\s|$)', line)
+
+                if match:
+                    first_sentence = line[:match.end()]
+                    lines_edited.append(first_sentence)
+                else:
+                    lines_edited.append(line)
             else:
                 lines_edited.append(line)
+
         return '\n'.join(lines_edited)
 
     def clean_sentence(self, sentence):
