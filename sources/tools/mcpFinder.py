@@ -1,5 +1,8 @@
 import os, sys
-import requests
+try:
+    import requests
+except ModuleNotFoundError:
+    requests = None
 from urllib.parse import urljoin
 from typing import Dict, Any, Optional
 
@@ -25,6 +28,8 @@ class MCP_finder(Tools):
 
     def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, 
                      data: Optional[Dict] = None) -> Dict[str, Any]:
+        if requests is None:
+            raise ModuleNotFoundError("requests dependency is not installed")
         url = urljoin(self.base_url.rstrip(), endpoint)
         try:
             response = requests.request(
@@ -75,11 +80,11 @@ class MCP_finder(Tools):
             block_clean = block.strip().lower().replace('\n', '')
             try:
                 matching_mcp_infos = self.find_mcp_servers(block_clean)
-            except requests.exceptions.RequestException as e:
-                output += "Connection failed. Is the API key in environment?\n"
-                continue
             except Exception as e:
-                output += f"Error: {str(e)}\n"
+                if requests is None:
+                    output += "Connection failed. Is the API key in environment?\n"
+                else:
+                    output += f"Error: {str(e)}\n"
                 continue
             if matching_mcp_infos == []:
                 output += f"Error: No MCP server found for query '{block}'\n"

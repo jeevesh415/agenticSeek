@@ -110,15 +110,20 @@ class Agent():
         return description
     
     def load_prompt(self, file_path: str) -> str:
-        try:
-            with open(file_path, 'r', encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Prompt file not found at path: {file_path}")
-        except PermissionError:
-            raise PermissionError(f"Permission denied to read prompt file at path: {file_path}")
-        except Exception as e:
-            raise e
+        candidate_paths = [file_path]
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        candidate_paths.append(os.path.join(base_dir, file_path))
+        candidate_paths.append(os.path.join(base_dir, file_path.lstrip("./")))
+
+        for candidate in candidate_paths:
+            try:
+                with open(candidate, 'r', encoding="utf-8") as f:
+                    return f.read()
+            except FileNotFoundError:
+                continue
+            except PermissionError:
+                raise PermissionError(f"Permission denied to read prompt file at path: {candidate}")
+        raise FileNotFoundError(f"Prompt file not found at path: {file_path}")
     
     def request_stop(self) -> None:
         """

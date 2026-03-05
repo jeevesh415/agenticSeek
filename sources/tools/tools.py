@@ -56,7 +56,9 @@ class Tools():
         if path is None or path == "":
             path = self.config['MAIN']['work_dir'] if 'MAIN' in self.config and 'work_dir' in self.config['MAIN'] else None
         if path is None or path == "":
-            raise Exception("No work dir specified, please specify a work dir in .env file.")
+            # Fall back to the repository parent folder so tests and local runs
+            # can execute without a configured WORK_DIR.
+            path = os.path.dirname(os.getcwd())
         return path
     
     def config_exists(self):

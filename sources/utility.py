@@ -1,6 +1,16 @@
 
-from colorama import Fore
-from termcolor import colored
+try:
+    from colorama import Fore
+except ModuleNotFoundError:
+    class _FallbackFore:
+        GREEN = RED = LIGHTGREEN_EX = LIGHTBLUE_EX = YELLOW = LIGHTCYAN_EX = RESET = CYAN = ""
+    Fore = _FallbackFore()
+
+try:
+    from termcolor import colored
+except ModuleNotFoundError:
+    def colored(text, _color):
+        return text
 import platform
 import threading
 import itertools

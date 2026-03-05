@@ -1,5 +1,9 @@
 import os, sys
-import requests
+try:
+    import requests
+except ModuleNotFoundError:
+    requests = None
+
 import dotenv
 
 dotenv.load_dotenv()
@@ -21,6 +25,8 @@ class FlightSearch(Tools):
         self.api_key = api_key or os.getenv("SERPAPI_API_KEY")
 
     def execute(self, blocks: str, safety: bool = True) -> str:
+        if requests is None:
+            return "Error: requests dependency is not installed."
         if self.api_key is None:
             return "Error: No SerpApi key provided."
         
