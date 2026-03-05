@@ -1,6 +1,14 @@
-import requests
+try:
+    import requests
+except ModuleNotFoundError:
+    requests = None
+
 import httpx
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ModuleNotFoundError:
+    BeautifulSoup = None
+import re
 import os
 import asyncio
 
@@ -33,6 +41,8 @@ class searxSearch(Tools):
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        if requests is None:
+            return "Error: requests is not installed"
         try:
             response = requests.get(link, headers=headers, timeout=5)
             status = response.status_code
@@ -86,15 +96,27 @@ class searxSearch(Tools):
                 response.raise_for_status()
                 html_content = response.text
 
-            soup = BeautifulSoup(html_content, 'html.parser')
             results = []
-            for article in soup.find_all('article', class_='result'):
-                url_header = article.find('a', class_='url_header')
-                if url_header:
-                    url = url_header['href']
-                    title = article.find('h3').text.strip() if article.find('h3') else "No Title"
-                    description = article.find('p', class_='content').text.strip() if article.find('p', class_='content') else "No Description"
-                    results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
+            if BeautifulSoup is not None:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                for article in soup.find_all('article', class_='result'):
+                    url_header = article.find('a', class_='url_header')
+                    if url_header:
+                        url = url_header['href']
+                        title = article.find('h3').text.strip() if article.find('h3') else "No Title"
+                        description = article.find('p', class_='content').text.strip() if article.find('p', class_='content') else "No Description"
+                        results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
+            else:
+                articles = re.findall(r'<article[^>]*class=["\']result["\'][^>]*>(.*?)</article>', html_content, flags=re.DOTALL | re.IGNORECASE)
+                for article_html in articles:
+                    href_match = re.search(r'<a[^>]*class=["\']url_header["\'][^>]*href=["\']([^"\']+)["\']', article_html, flags=re.IGNORECASE)
+                    if not href_match:
+                        continue
+                    title_match = re.search(r'<h3[^>]*>(.*?)</h3>', article_html, flags=re.DOTALL | re.IGNORECASE)
+                    desc_match = re.search(r'<p[^>]*class=["\']content["\'][^>]*>(.*?)</p>', article_html, flags=re.DOTALL | re.IGNORECASE)
+                    title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else "No Title"
+                    description = re.sub(r'<[^>]+>', '', desc_match.group(1)).strip() if desc_match else "No Description"
+                    results.append(f"Title:{title}\nSnippet:{description}\nLink:{href_match.group(1)}")
             if len(results) == 0:
                 return "No search results, web search failed."
             return "\n\n".join(results)  # Return results as a single string, separated by newlines

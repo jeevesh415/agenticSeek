@@ -5,11 +5,40 @@ import subprocess
 import time
 from urllib.parse import urlparse
 
-import httpx
-import requests
-from dotenv import load_dotenv
-from ollama import Client as OllamaClient
-from openai import OpenAI
+try:
+    import httpx
+except ModuleNotFoundError:
+    class _HttpxStub:
+        ConnectError = Exception
+
+    httpx = _HttpxStub()
+
+try:
+    import requests
+except ModuleNotFoundError:
+    class _RequestsStub:
+        class exceptions:
+            RequestException = Exception
+            Timeout = Exception
+            ConnectionError = Exception
+
+    requests = _RequestsStub()
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
+try:
+    from ollama import Client as OllamaClient
+except ModuleNotFoundError:
+    OllamaClient = None
+
+try:
+    from openai import OpenAI
+except ModuleNotFoundError:
+    OpenAI = None
 
 from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
