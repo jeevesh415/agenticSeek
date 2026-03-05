@@ -10,6 +10,7 @@ from sources.text_to_speech import Speech
 from sources.tools.tools import Tools
 from sources.logger import Logger
 from sources.memory import Memory
+from sources.advanced_capabilities import suggest_capability_guidance
 
 class PlannerAgent(Agent):
     def __init__(self, name, prompt_path, provider, verbose=False, browser=None):
@@ -35,6 +36,19 @@ class PlannerAgent(Agent):
                                 memory_compression=False,
                                 model_provider=provider.get_model_name())
         self.logger = Logger("planner_agent.log")
+
+    def enrich_goal_with_capabilities(self, goal: str) -> str:
+        """Enrich broad user goals with advanced capability guidance for stronger plans."""
+        guidance = suggest_capability_guidance(goal)
+        if not guidance:
+            return goal
+        guidance_block = "\n".join([f"- {item}" for item in guidance])
+        return (
+            f"{goal}\n\n"
+            "Additional strategic constraints for an advanced AGI-oriented execution:\n"
+            f"{guidance_block}\n"
+            "Reflect these constraints directly in the plan whenever relevant."
+        )
     
     def get_task_names(self, text: str) -> List[str]:
         """
@@ -261,7 +275,8 @@ class PlannerAgent(Agent):
         agents_work_result = dict()
 
         self.status_message = "Making a plan..."
-        agents_tasks = await self.make_plan(goal)
+        enriched_goal = self.enrich_goal_with_capabilities(goal)
+        agents_tasks = await self.make_plan(enriched_goal)
 
         if agents_tasks == []:
             return "Failed to parse the tasks.", ""
