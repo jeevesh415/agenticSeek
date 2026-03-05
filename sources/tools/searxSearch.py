@@ -1,5 +1,9 @@
 import httpx
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ModuleNotFoundError:
+    BeautifulSoup = None
+import re
 import os
 import asyncio
 
@@ -17,13 +21,13 @@ class searxSearch(Tools):
         self.tag = "web_search"
         self.name = "searxSearch"
         self.description = "A tool for searching a SearxNG for web search"
-        self.base_url = os.getenv("SEARXNG_BASE_URL")  # Requires a SearxNG base URL
+        self.base_url = base_url or os.getenv("SEARXNG_BASE_URL")
         self.user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+        if not self.base_url:
+            raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
         self.paywall_keywords = [
             "Member-only", "access denied", "restricted content", "404", "this page is not working"
         ]
-        if not self.base_url:
-            raise ValueError("SearxNG base URL must be provided either as an argument or via the SEARXNG_BASE_URL environment variable.")
 
     async def link_valid(self, client: httpx.AsyncClient, link: str) -> str:
         """check if a link is valid."""
@@ -86,14 +90,28 @@ class searxSearch(Tools):
                 response.raise_for_status()
                 html_content = response.text
 
-            soup = BeautifulSoup(html_content, 'html.parser')
             results = []
-            for article in soup.find_all('article', class_='result'):
-                url_header = article.find('a', class_='url_header')
-                if url_header:
-                    url = url_header['href']
-                    title = article.find('h3').text.strip() if article.find('h3') else "No Title"
-                    description = article.find('p', class_='content').text.strip() if article.find('p', class_='content') else "No Description"
+            if BeautifulSoup is not None:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                for article in soup.find_all('article', class_='result'):
+                    url_header = article.find('a', class_='url_header')
+                    if url_header:
+                        url = url_header['href']
+                        title = article.find('h3').text.strip() if article.find('h3') else "No Title"
+                        description = article.find('p', class_='content').text.strip() if article.find('p', class_='content') else "No Description"
+                        results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
+            else:
+                article_pattern = re.compile(r"<article[^>]*class=['\" ]?result['\" ]?[^>]*>(.*?)</article>", re.S | re.I)
+                for article_html in article_pattern.findall(html_content):
+                    href_match = re.search(r"class=['\" ]?url_header['\" ]?[^>]*href=['\"]([^'\"]+)", article_html, re.I)
+                    if not href_match:
+                        continue
+                    title_match = re.search(r'<h3[^>]*>(.*?)</h3>', article_html, re.S | re.I)
+                    content_match = re.search(r"<p[^>]*class=['\" ]?content['\" ]?[^>]*>(.*?)</p>", article_html, re.S | re.I)
+                    clean = lambda t: re.sub(r'<[^>]+>', '', t).strip()
+                    title = clean(title_match.group(1)) if title_match else "No Title"
+                    description = clean(content_match.group(1)) if content_match else "No Description"
+                    url = href_match.group(1)
                     results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
             if len(results) == 0:
                 return "No search results, web search failed."

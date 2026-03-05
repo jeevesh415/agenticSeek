@@ -25,9 +25,12 @@ class BrowserAgent(Agent):
         The Browser agent is an agent that navigate the web autonomously in search of answer
         """
         super().__init__(name, prompt_path, provider, verbose, browser)
-        self.tools = {
-            "web_search": searxSearch(),
-        }
+        self.tools = {}
+        try:
+            self.tools["web_search"] = searxSearch()
+        except ValueError:
+            self.logger = Logger("browser_agent.log")
+            self.logger.warning("SearxNG base URL missing; web_search tool disabled for this session.")
         self.role = "web"
         self.type = "browser_agent"
         self.browser = browser

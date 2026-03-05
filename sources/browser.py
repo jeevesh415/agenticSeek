@@ -1,18 +1,44 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from selenium.webdriver.common.action_chains import ActionChains
+from __future__ import annotations
+
 from typing import List, Tuple, Type, Dict
-from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from fake_useragent import UserAgent
-from selenium_stealth import stealth
-import undetected_chromedriver as uc
-import chromedriver_autoinstaller
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    from selenium.webdriver.common.action_chains import ActionChains
+except ModuleNotFoundError:
+    webdriver = Service = Options = By = WebDriverWait = EC = TimeoutException = WebDriverException = ActionChains = None
+
+try:
+    from bs4 import BeautifulSoup
+except ModuleNotFoundError:
+    BeautifulSoup = None
+
+try:
+    from fake_useragent import UserAgent
+except ModuleNotFoundError:
+    UserAgent = None
+
+try:
+    from selenium_stealth import stealth
+except ModuleNotFoundError:
+    stealth = None
+
+try:
+    import undetected_chromedriver as uc
+except ModuleNotFoundError:
+    uc = None
+
+try:
+    import chromedriver_autoinstaller
+except ModuleNotFoundError:
+    chromedriver_autoinstaller = None
 import certifi
 import ssl
 import time
@@ -21,7 +47,10 @@ import os
 import shutil
 import uuid
 import tempfile
-import markdownify
+try:
+    import markdownify
+except ModuleNotFoundError:
+    markdownify = None
 import sys
 import re
 
