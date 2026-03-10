@@ -3,6 +3,7 @@ import platform
 import socket
 import subprocess
 import time
+import asyncio
 from urllib.parse import urlparse
 
 try:
@@ -91,6 +92,8 @@ class Provider:
         self.logger.info(f"Using provider: {self.provider_name} at {self.server_ip}")
         try:
             thought = llm(history, verbose)
+            if asyncio.iscoroutine(thought):
+                thought = asyncio.run(thought)
         except KeyboardInterrupt:
             self.logger.warning("User interrupted the operation with Ctrl+C")
             return "Operation interrupted by user. REQUEST_EXIT"
@@ -133,7 +136,7 @@ class Provider:
         except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
             return False
 
-    def server_fn(self, history, verbose=False):
+    async def server_fn(self, history, verbose=False):
         """
         Use a remote server with LLM to generate text.
         """
@@ -147,27 +150,29 @@ class Provider:
             pretty_print(f"Server is offline at {self.server_ip}", color="failure")
 
         try:
-            requests.post(route_setup, json={"model": self.model})
-            requests.post(route_gen, json={"messages": history})
-            is_complete = False
-            while not is_complete:
-                try:
-                    response = requests.get(f"{self.server_ip}/get_updated_sentence")
-                    if "error" in response.json():
-                        pretty_print(response.json()["error"], color="failure")
+            async with httpx.AsyncClient() as client:
+                await client.post(route_setup, json={"model": self.model})
+                await client.post(route_gen, json={"messages": history})
+                is_complete = False
+                while not is_complete:
+                    try:
+                        response = await client.get(f"{self.server_ip}/get_updated_sentence")
+                        if "error" in response.json():
+                            pretty_print(response.json()["error"], color="failure")
+                            break
+                        thought = response.json()["sentence"]
+                        is_complete = bool(response.json()["is_complete"])
+                        if not is_complete:
+                            await asyncio.sleep(2)
+                    except httpx.RequestError as e:
+                        pretty_print(f"HTTP request failed: {str(e)}", color="failure")
                         break
-                    thought = response.json()["sentence"]
-                    is_complete = bool(response.json()["is_complete"])
-                    time.sleep(2)
-                except requests.exceptions.RequestException as e:
-                    pretty_print(f"HTTP request failed: {str(e)}", color="failure")
-                    break
-                except ValueError as e:
-                    pretty_print(f"Failed to parse JSON response: {str(e)}", color="failure")
-                    break
-                except Exception as e:
-                    pretty_print(f"An error occurred: {str(e)}", color="failure")
-                    break
+                    except ValueError as e:
+                        pretty_print(f"Failed to parse JSON response: {str(e)}", color="failure")
+                        break
+                    except Exception as e:
+                        pretty_print(f"An error occurred: {str(e)}", color="failure")
+                        break
         except KeyError as e:
             raise Exception(
                 f"{str(e)}\nError occured with server route. Are you using the correct address for the config.ini provider?") from e
