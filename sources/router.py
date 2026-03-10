@@ -2,6 +2,7 @@ import os
 import sys
 import torch
 import random
+import asyncio
 from typing import List, Tuple, Type, Dict
 
 from transformers import pipeline
@@ -438,7 +439,7 @@ class AgentRouter:
         self.logger.error("Planner agent not found.")
         return None
     
-    def select_agent(self, text: str) -> Agent:
+    async def select_agent(self, text: str) -> Agent:
         """
         Select the appropriate agent based on the text.
         Args:
@@ -449,16 +450,17 @@ class AgentRouter:
         assert len(self.agents) > 0, "No agents available."
         if len(self.agents) == 1:
             return self.agents[0]
-        lang = self.lang_analysis.detect_language(text)
+        loop = asyncio.get_running_loop()
+        lang = await loop.run_in_executor(None, self.lang_analysis.detect_language, text)
         text = self.find_first_sentence(text)
-        text = self.lang_analysis.translate(text, lang)
+        text = await loop.run_in_executor(None, self.lang_analysis.translate, text, lang)
         labels = [agent.role for agent in self.agents]
-        complexity = self.estimate_complexity(text)
+        complexity = await loop.run_in_executor(None, self.estimate_complexity, text)
         if complexity == "HIGH":
             pretty_print(f"Complex task detected, routing to planner agent.", color="info")
             return self.find_planner_agent()
         try:
-            best_agent = self.router_vote(text, labels, log_confidence=False)
+            best_agent = await loop.run_in_executor(None, self.router_vote, text, labels, False)
         except Exception as e:
             raise e
         for agent in self.agents:
@@ -523,7 +525,10 @@ if __name__ == "__main__":
         "给我讲一个有趣的故事",
         "Raconte moi une histoire drole"
     ]
-    for text in texts:
-        print("Input text:", text)
-        agent = router.select_agent(text)
-        print()
+    async def main():
+        for text in texts:
+            print("Input text:", text)
+            agent = await router.select_agent(text)
+            print()
+
+    asyncio.run(main())
