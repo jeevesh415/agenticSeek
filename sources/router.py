@@ -2,6 +2,7 @@ import os
 import sys
 import torch
 import random
+import asyncio
 from typing import List, Tuple, Type, Dict
 
 from transformers import pipeline
@@ -367,7 +368,7 @@ class AgentRouter:
         predictions = sorted(predictions, key=lambda x: x[1], reverse=True)
         return predictions[0]
     
-    def router_vote(self, text: str, labels: list, log_confidence:bool = False) -> str:
+    async def router_vote(self, text: str, labels: list, log_confidence:bool = False) -> str:
         """
         Vote between the LLM router and BART model.
         Args:
@@ -378,8 +379,24 @@ class AgentRouter:
         """
         if len(text) <= 8:
             return "talk"
-        result_bart = self.pipelines['bart'](text, labels)
-        result_llm_router = self.llm_router(text)
+        loop = asyncio.get_running_loop()
+
+        # Run inference in executor to avoid blocking the loop
+        result_bart_future = loop.run_in_executor(
+            None,
+            lambda: self.pipelines['bart'](text, labels)
+        )
+
+        result_llm_router_future = loop.run_in_executor(
+            None,
+            lambda: self.llm_router(text)
+        )
+
+        result_bart, result_llm_router = await asyncio.gather(
+            result_bart_future,
+            result_llm_router_future
+        )
+
         bart, confidence_bart = result_bart['labels'][0], result_bart['scores'][0]
         llm_router, confidence_llm_router = result_llm_router[0], result_llm_router[1]
         final_score_bart = confidence_bart / (confidence_bart + confidence_llm_router)
@@ -398,7 +415,7 @@ class AgentRouter:
             first_sentence = text
         return first_sentence
     
-    def estimate_complexity(self, text: str) -> str:
+    async def estimate_complexity(self, text: str) -> str:
         """
         Estimate the complexity of the text.
         Args:
@@ -407,7 +424,11 @@ class AgentRouter:
         str: The estimated complexity
         """
         try:
-            predictions = self.complexity_classifier.predict(text)
+            loop = asyncio.get_running_loop()
+            predictions = await loop.run_in_executor(
+                None,
+                lambda: self.complexity_classifier.predict(text)
+            )
         except Exception as e:
             pretty_print(f"Error in estimate_complexity: {str(e)}", color="failure")
             return "LOW"
@@ -438,7 +459,7 @@ class AgentRouter:
         self.logger.error("Planner agent not found.")
         return None
     
-    def select_agent(self, text: str) -> Agent:
+    async def select_agent(self, text: str) -> Agent:
         """
         Select the appropriate agent based on the text.
         Args:
@@ -453,12 +474,12 @@ class AgentRouter:
         text = self.find_first_sentence(text)
         text = self.lang_analysis.translate(text, lang)
         labels = [agent.role for agent in self.agents]
-        complexity = self.estimate_complexity(text)
+        complexity = await self.estimate_complexity(text)
         if complexity == "HIGH":
             pretty_print(f"Complex task detected, routing to planner agent.", color="info")
             return self.find_planner_agent()
         try:
-            best_agent = self.router_vote(text, labels, log_confidence=False)
+            best_agent = await self.router_vote(text, labels, log_confidence=False)
         except Exception as e:
             raise e
         for agent in self.agents:
@@ -523,7 +544,9 @@ if __name__ == "__main__":
         "给我讲一个有趣的故事",
         "Raconte moi une histoire drole"
     ]
-    for text in texts:
-        print("Input text:", text)
-        agent = router.select_agent(text)
-        print()
+    async def main():
+        for text in texts:
+            print("Input text:", text)
+            agent = await router.select_agent(text)
+            print()
+    asyncio.run(main())
