@@ -164,7 +164,13 @@ class Speech():
         return sentence
 
 if __name__ == "__main__":
-    # TODO add info message for cn2an, jieba chinese related import
+    try:
+        import cn2an
+        import jieba
+    except ImportError:
+        print("Info: Chinese support requires 'cn2an' and 'jieba' libraries.")
+        print("Please install them using: pip install cn2an jieba")
+
     IMPORT_FOUND = False
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     speech = Speech()
