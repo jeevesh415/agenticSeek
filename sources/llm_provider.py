@@ -147,18 +147,19 @@ class Provider:
             pretty_print(f"Server is offline at {self.server_ip}", color="failure")
 
         try:
-            requests.post(route_setup, json={"model": self.model})
-            requests.post(route_gen, json={"messages": history})
+            session = requests.Session()
+            session.post(route_setup, json={"model": self.model})
+            session.post(route_gen, json={"messages": history})
             is_complete = False
             while not is_complete:
                 try:
-                    response = requests.get(f"{self.server_ip}/get_updated_sentence")
+                    response = session.get(f"{self.server_ip}/get_updated_sentence")
                     if "error" in response.json():
                         pretty_print(response.json()["error"], color="failure")
                         break
                     thought = response.json()["sentence"]
                     is_complete = bool(response.json()["is_complete"])
-                    time.sleep(2)
+                    time.sleep(0.1)
                 except requests.exceptions.RequestException as e:
                     pretty_print(f"HTTP request failed: {str(e)}", color="failure")
                     break
