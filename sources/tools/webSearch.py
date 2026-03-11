@@ -1,5 +1,4 @@
 import os
-import requests
 import dotenv
 import asyncio
 import httpx
@@ -57,8 +56,8 @@ class webSearch(Tools):
             tasks = [self.link_valid_async(client, link) for link in links]
             return await asyncio.gather(*tasks)
 
-    def check_all_links(self, links):
-        """Check all links, one by one (asynchronously)."""
+    def _run_async(self, coro):
+        """Helper to run async code from a sync context."""
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -71,7 +70,7 @@ class webSearch(Tools):
                 new_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(new_loop)
                 try:
-                    res = new_loop.run_until_complete(self.check_all_links_async(links))
+                    res = new_loop.run_until_complete(coro)
                     result.append(res)
                 finally:
                     new_loop.close()
@@ -81,7 +80,11 @@ class webSearch(Tools):
             t.join()
             return result[0]
         else:
-            return asyncio.run(self.check_all_links_async(links))
+            return asyncio.run(coro)
+
+    def check_all_links(self, links):
+        """Check all links, one by one (asynchronously)."""
+        return self._run_async(self.check_all_links_async(links))
 
     def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
@@ -100,10 +103,14 @@ class webSearch(Tools):
                     "num": 50,
                     "output": "json"
                 }
-                response = requests.get(url, params=params)
-                response.raise_for_status()
 
-                data = response.json()
+                async def fetch_search_results():
+                    async with httpx.AsyncClient(http2=True, verify=True) as client:
+                        resp = await client.get(url, params=params, timeout=10.0)
+                        resp.raise_for_status()
+                        return resp.json()
+
+                data = self._run_async(fetch_search_results())
                 results = []
                 if "organic_results" in data and len(data["organic_results"]) > 0:
                     organic_results = data["organic_results"][:50]
@@ -119,7 +126,7 @@ class webSearch(Tools):
                     return "\n\n".join(results)
                 else:
                     return "No results found for the query."
-            except requests.RequestException as e:
+            except httpx.HTTPError as e:
                 return f"Error during web search: {str(e)}"
             except Exception as e:
                 return f"Unexpected error: {str(e)}"
