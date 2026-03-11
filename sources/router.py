@@ -196,9 +196,8 @@ class AgentRouter:
             ("Find a file named ‘budget.xlsx’, analyze its data, and generate a chart", "HIGH"),
         ]
         random.shuffle(few_shots)
-        texts = [text for text, _ in few_shots]
-        labels = [label for _, label in few_shots]
-        self.complexity_classifier.add_examples(texts, labels)
+        texts, labels = zip(*few_shots)
+        self.complexity_classifier.add_examples(list(texts), list(labels))
 
     def learn_few_shots_tasks(self) -> None:
         """
@@ -352,9 +351,8 @@ class AgentRouter:
             ("hello", "talk"),
         ]
         random.shuffle(few_shots)
-        texts = [text for text, _ in few_shots]
-        labels = [label for _, label in few_shots]
-        self.talk_classifier.add_examples(texts, labels)
+        texts, labels = zip(*few_shots)
+        self.talk_classifier.add_examples(list(texts), list(labels))
 
     def llm_router(self, text: str) -> tuple:
         """
