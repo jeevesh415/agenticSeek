@@ -14,6 +14,13 @@ except ImportError:
     print("Speech synthesis disabled. Please install the kokoro package.")
     IMPORT_FOUND = False
 
+CHINESE_IMPORT_FOUND = True
+try:
+    import cn2an
+    import jieba
+except ImportError:
+    CHINESE_IMPORT_FOUND = False
+
 if __name__ == "__main__":
     from utility import pretty_print, animate_thinking
 else:
@@ -38,6 +45,9 @@ class Speech():
         }
         self.pipeline = None
         self.language = language
+        if self.language == "zh" and not CHINESE_IMPORT_FOUND:
+            pretty_print("Chinese text-to-speech dependencies (cn2an, jieba) are missing. Please install them with `pip install .[chinese]` for better results.", color="warning")
+
         if enable and IMPORT_FOUND:
             self.pipeline = KPipeline(lang_code=self.lang_map[language])
         self.voice = self.voice_map[language][voice_idx]
@@ -164,7 +174,8 @@ class Speech():
         return sentence
 
 if __name__ == "__main__":
-    # TODO add info message for cn2an, jieba chinese related import
+    if not CHINESE_IMPORT_FOUND:
+        print("Chinese-related dependencies (cn2an, jieba) are missing. Some Chinese TTS features may be limited.")
     IMPORT_FOUND = False
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     speech = Speech()
