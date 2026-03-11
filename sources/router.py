@@ -22,6 +22,13 @@ class AgentRouter:
     """
     def __init__(self, agents: list, supported_language: List[str] = ["en", "fr", "zh"]):
         self.agents = agents
+        self.agents_dict = {}
+        self.agent_types_dict = {}
+        for agent in self.agents:
+            if agent.role not in self.agents_dict:
+                self.agents_dict[agent.role] = agent
+            if agent.type not in self.agent_types_dict:
+                self.agent_types_dict[agent.type] = agent
         self.logger = Logger("router.log")
         self.lang_analysis = LanguageUtility(supported_language=supported_language)
         self.pipelines = self.load_pipelines()
@@ -429,9 +436,9 @@ class AgentRouter:
         Returns:
             Agent: The planner agent
         """
-        for agent in self.agents:
-            if agent.type == "planner_agent":
-                return agent
+        planner = self.agent_types_dict.get("planner_agent")
+        if planner:
+            return planner
         pretty_print(f"Error finding planner agent. Please add a planner agent to the list of agents.", color="failure")
         self.logger.error("Planner agent not found.")
         return None
@@ -459,11 +466,10 @@ class AgentRouter:
             best_agent = self.router_vote(text, labels, log_confidence=False)
         except Exception as e:
             raise e
-        for agent in self.agents:
-            if best_agent == agent.role:
-                role_name = agent.role
-                pretty_print(f"Selected agent: {agent.agent_name} (roles: {role_name})", color="warning")
-                return agent
+        agent = self.agents_dict.get(best_agent)
+        if agent:
+            pretty_print(f"Selected agent: {agent.agent_name} (roles: {agent.role})", color="warning")
+            return agent
         pretty_print(f"Error choosing agent.", color="failure")
         self.logger.error("No agent selected.")
         return None
