@@ -18,6 +18,7 @@ class searxSearch(Tools):
         A tool for searching a SearxNG instance and extracting URLs and titles.
         """
         super().__init__()
+        self.concurrency_limit = 10
         self.tag = "web_search"
         self.name = "searxSearch"
         self.description = "A tool for searching a SearxNG for web search"
@@ -59,8 +60,14 @@ class searxSearch(Tools):
 
     async def check_all_links(self, links):
         """Check all links, one by one (concurrently)."""
+        semaphore = asyncio.Semaphore(self.concurrency_limit)
+
+        async def sem_link_valid(client, link):
+            async with semaphore:
+                return await self.link_valid(client, link)
+
         async with httpx.AsyncClient(verify=True) as client:
-            tasks = [self.link_valid(client, link) for link in links]
+            tasks = [sem_link_valid(client, link) for link in links]
             return await asyncio.gather(*tasks)
     
     async def execute(self, blocks: list, safety: bool = False) -> str:
