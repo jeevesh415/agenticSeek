@@ -4,6 +4,7 @@ import queue
 import threading
 import numpy as np
 import time
+import re
 
 IMPORT_FOUND = True
 
@@ -108,6 +109,30 @@ class Transcript:
             torch_dtype=torch_dtype,
             device=device,
         )
+
+        self._compile_hallucination_patterns()
+
+    def _compile_hallucination_patterns(self):
+        """Pre-compile regular expressions for hallucination removal."""
+        phrases = [
+            r"Thank you for watching\.?",
+            r"Thank you\.?",
+            r"Okay\.?",
+            r"Mh-hmm\.?",
+            r"Hmm\.?",
+            r"\bUh\b,?",
+            r"\bOh\b,?",
+            r"\bOh\b\.?",
+            r"\bYou're\b",
+            r"\byou\b",
+            r"\bgoing to\.",
+            r"\bnot\."
+        ]
+
+        # Sort to ensure longer phrases are matched and removed first
+        phrases.sort(key=len, reverse=True)
+        self.hallucination_patterns = [re.compile(phrase, re.IGNORECASE) for phrase in phrases]
+        self.loop_pattern = re.compile(r'\b(\w+)(?:\s+\1\b)+', re.IGNORECASE)
     
     def get_device(self) -> str:
         if not IMPORT_FOUND:
@@ -121,10 +146,23 @@ class Transcript:
         
     def remove_hallucinations(self, text: str) -> str:
         """Remove model hallucinations from the text."""
-        # TODO find a better way to do this
-        common_hallucinations = ['Okay.', 'Thank you.', 'Thank you for watching.', 'You\'re', 'Oh', 'you', 'Oh.', 'Uh', 'Oh,', 'Mh-hmm', 'Hmm.', 'going to.', 'not.']
-        for hallucination in common_hallucinations:
-            text = text.replace(hallucination, "")
+        # Ensure patterns are compiled (useful if __init__ was mocked in tests)
+        if not hasattr(self, 'hallucination_patterns'):
+            self._compile_hallucination_patterns()
+
+        # Remove known exact hallucinations
+        for pattern in self.hallucination_patterns:
+            text = pattern.sub("", text)
+
+        # Remove repetitive word loops (e.g. "word word word" -> "word")
+        text = self.loop_pattern.sub(r'\1', text)
+
+        # Clean up multiple spaces that might have been left behind
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # Strip leading punctuation (like extra commas or periods) left by hallucination removal
+        text = re.sub(r'^[\s,]+', '', text)
+
         return text
     
     def transcript_job(self, audio_data: np.ndarray, sample_rate: int = 16000) -> str:
