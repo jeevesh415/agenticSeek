@@ -24,6 +24,10 @@ class Interaction:
         self.last_answer = None
         self.last_reasoning = None
         self.agents = agents
+        self.agents_dict_type = {}
+        for agent in agents:
+            if agent.type not in self.agents_dict_type:
+                self.agents_dict_type[agent.type] = agent
         self.tts_enabled = tts_enabled
         self.stt_enabled = stt_enabled
         self.recover_last_session = recover_last_session
@@ -70,12 +74,8 @@ class Interaction:
     
     def find_ai_name(self) -> str:
         """Find the name of the default AI. It is required for STT as a trigger word."""
-        ai_name = "jarvis"
-        for agent in self.agents:
-            if agent.type == "casual_agent":
-                ai_name = agent.agent_name
-                break
-        return ai_name
+        casual = self.agents_dict_type.get("casual_agent")
+        return casual.agent_name if casual else "jarvis"
     
     def get_last_blocks_result(self) -> List[Dict]:
         """Get the last blocks result."""
