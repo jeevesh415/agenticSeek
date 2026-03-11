@@ -104,10 +104,7 @@ class Agent():
         """
         Get the list of tools names and their description.
         """
-        description = ""
-        for name in self.get_tools_name():
-            description += f"{name}: {self.tools[name].description}\n"
-        return description
+        return "".join(f"{name}: {tool.description}\n" for name, tool in self.tools.items())
     
     def load_prompt(self, file_path: str) -> str:
         try:
