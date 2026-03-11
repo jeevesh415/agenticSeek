@@ -143,6 +143,7 @@ def initialize_system():
 interaction = initialize_system()
 is_generating = False
 query_resp_history = []
+seen_answers = set()
 
 @api.get("/screenshot")
 async def get_screenshot():
@@ -174,11 +175,11 @@ async def stop():
 
 @api.get("/latest_answer")
 async def get_latest_answer():
-    global query_resp_history
+    global query_resp_history, seen_answers
     if interaction.current_agent is None:
         return JSONResponse(status_code=404, content={"error": "No agent available"})
     uid = str(uuid.uuid4())
-    if not any(q["answer"] == interaction.current_agent.last_answer for q in query_resp_history):
+    if interaction.current_agent.last_answer not in seen_answers:
         query_resp = {
             "done": "false",
             "answer": interaction.current_agent.last_answer,
@@ -189,6 +190,7 @@ async def get_latest_answer():
             "status": interaction.current_agent.get_status_message if interaction.current_agent else "No status available",
             "uid": uid
         }
+        seen_answers.add(interaction.current_agent.last_answer)
         interaction.current_agent.last_answer = ""
         interaction.current_agent.last_reasoning = ""
         query_resp_history.append(query_resp)
@@ -220,7 +222,7 @@ async def think_wrapper(interaction, query):
 
 @api.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    global is_generating, query_resp_history
+    global is_generating, query_resp_history, seen_answers
     logger.info(f"Processing query: {request.query}")
     query_resp = QueryResponse(
         done="false",
@@ -273,6 +275,7 @@ async def process_query(request: QueryRequest):
             "uid": query_resp.uid
         }
         query_resp_history.append(query_resp_dict)
+        seen_answers.add(query_resp.answer)
 
         logger.info("Query processed successfully")
         return JSONResponse(status_code=200, content=query_resp.jsonify())
