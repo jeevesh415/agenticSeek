@@ -9,27 +9,33 @@ class Cache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         if not self.cache_file.exists():
             with open(self.cache_file, 'w') as f:
-                json.dump([], f)
+                json.dump({}, f)
 
         with open(self.cache_file, 'r') as f:
-            self.cache = set(json.load(f))
+            data = json.load(f)
+
+        if isinstance(data, list):
+            # Migrate old list format to dictionary format
+            self.cache = {entry["user"]: entry["assistant"] for entry in data if "user" in entry and "assistant" in entry}
+            self._save()
+        elif isinstance(data, dict):
+            self.cache = data
+        else:
+            self.cache = {}
 
     def add_message_pair(self, user_message: str, assistant_message: str):
         """Add a user/assistant pair to the cache if not present."""
-        if not any(entry["user"] == user_message for entry in self.cache):
-            self.cache.append({"user": user_message, "assistant": assistant_message})
+        if user_message not in self.cache:
+            self.cache[user_message] = assistant_message
             self._save()
 
     def is_cached(self, user_message: str) -> bool:
         """Check if a user msg is cached."""
-        return any(entry["user"] == user_message for entry in self.cache)
+        return user_message in self.cache
 
     def get_cached_response(self, user_message: str) -> str | None:
         """Return the assistant response to a user message if cached."""
-        for entry in self.cache:
-            if entry["user"] == user_message:
-                return entry["assistant"]
-        return None
+        return self.cache.get(user_message)
 
     def _save(self):
         with open(self.cache_file, 'w') as f:
