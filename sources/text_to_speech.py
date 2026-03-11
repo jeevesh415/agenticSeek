@@ -121,23 +121,113 @@ class Speech():
         parts = re.split(r'/|\\', path)
         return parts[-1] if parts else path
     
-    def shorten_paragraph(self, sentence):
-        #TODO find a better way, we would like to have the TTS not be annoying, speak only useful informations
+    def split_first_sentence(self, text: str) -> str:
         """
-        Find long paragraph like **explanation**: <long text> by keeping only the first sentence.
+        Intelligently extract the first sentence from a string, ignoring common abbreviations
+        and supporting multiple languages.
+        """
+        # Find all punctuation marks that could be sentence boundaries
+        # Matches ., !, ?, or Chinese/Japanese 。 followed by space, end of string, or other text
+        # (in languages like Chinese/Japanese, spacing after punctuation is often omitted)
+        pattern = r'([.!?。])(?:\s|$|(?=[\u4e00-\u9fff\u3040-\u30ff]))'
+
+        # We need to manually skip matches that immediately follow our abbreviations
+        # because Python's re doesn't support variable-width negative lookbehinds
+        abbreviations = ['mr', 'mrs', 'ms', 'dr', 'prof', 'rev', 'e.g', 'i.e', 'etc', 'vs', 'inc', 'ltd', 'jr', 'sr']
+
+        for match in re.finditer(pattern, text):
+            end_idx = match.end(1) # End index of the punctuation mark
+            start_idx = match.start(1)
+
+            # Extract word immediately before the punctuation
+            # Search backwards from the punctuation mark to find the last word boundary
+            word_match = re.search(r'\b([a-zA-Z.]+)$', text[:start_idx].strip())
+
+            if word_match:
+                word = word_match.group(1).lower()
+                if word in abbreviations:
+                    continue # Skip this punctuation, it's an abbreviation
+
+            # Found a valid sentence boundary
+            return text[:end_idx].strip()
+
+        return text.strip()
+
+    def is_conversational_filler(self, line: str) -> bool:
+        """
+        Check if a line is common AI conversational filler that isn't useful for TTS.
+        """
+        line_lower = line.strip().lower()
+        filler_patterns = [
+            r'^here is the information',
+            r'^based on my search',
+            r'^i found the following',
+            r'^sure,? here',
+            r'^certainly',
+            r'^here are the results',
+            r'^i looked up',
+            r'^the search results show'
+        ]
+        return any(re.search(pattern, line_lower) for pattern in filler_patterns)
+
+    def is_list_item(self, line: str) -> bool:
+        """
+        Check if a line looks like a list item (e.g., '-', '*', '1.').
+        """
+        return bool(re.match(r'^(\s*[-*+]\s|\s*\d+[\.)]\s)', line))
+
+    def shorten_paragraph(self, sentence):
+        """
+        Shorten text to prevent TTS from being annoying.
+        - Keeps only the first sentence of header-led paragraphs (e.g. **Title**: text).
+        - Removes conversational filler lines.
+        - Truncates long lists to a maximum of 3 items.
+
         Args:
-            sentence (str): The sentence to shorten
+            sentence (str): The text to shorten
         Returns:
-            str: The shortened sentence
+            str: The shortened text
         """
         lines = sentence.split('\n')
         lines_edited = []
+        list_item_count = 0
+        in_list = False
+
         for line in lines:
-            if line.startswith('**'):
-                lines_edited.append(line.split('.')[0])
-            else:
+            stripped_line = line.strip()
+            if not stripped_line:
                 lines_edited.append(line)
-        return '\n'.join(lines_edited)
+                in_list = False
+                list_item_count = 0
+                continue
+
+            if self.is_conversational_filler(stripped_line):
+                continue
+
+            is_item = self.is_list_item(stripped_line)
+            if is_item:
+                if not in_list:
+                    in_list = True
+                    list_item_count = 0
+
+                list_item_count += 1
+                if list_item_count <= 3:
+                    lines_edited.append(line)
+                elif list_item_count == 4:
+                    # Add a brief indicator that the list was truncated
+                    indent = re.match(r'^\s*', line).group(0)
+                    lines_edited.append(f"{indent}...and more items.")
+            else:
+                in_list = False
+                list_item_count = 0
+
+                if stripped_line.startswith('**'):
+                    # Shorten header-led paragraphs to just their first sentence
+                    lines_edited.append(self.split_first_sentence(line))
+                else:
+                    lines_edited.append(line)
+
+        return '\n'.join(lines_edited).strip()
 
     def clean_sentence(self, sentence):
         """
