@@ -444,17 +444,29 @@ class Browser:
     def get_navigable(self) -> List[str]:
         """Get all navigable links on the current page."""
         try:
-            links = []
-            elements = self.driver.find_elements(By.TAG_NAME, "a")
-            
-            for element in elements:
-                href = element.get_attribute("href")
-                if href and href.startswith(("http", "https")):
-                    links.append({
+            script = """
+            var links = [];
+            var elements = document.getElementsByTagName("a");
+            for (var i = 0; i < elements.length; i++) {
+                var element = elements[i];
+                var href = element.href;
+                if (href && (href.indexOf("http") === 0 || href.indexOf("https") === 0)) {
+                    var rect = element.getBoundingClientRect();
+                    var style = window.getComputedStyle(element);
+                    var is_displayed = (rect.width > 0 && rect.height > 0) &&
+                                       style.visibility !== 'hidden' &&
+                                       style.display !== 'none' &&
+                                       style.opacity !== '0';
+                    links.push({
                         "url": href,
-                        "text": element.text.strip(),
-                        "is_displayed": element.is_displayed()
-                    })
+                        "text": element.innerText.trim(),
+                        "is_displayed": is_displayed
+                    });
+                }
+            }
+            return links;
+            """
+            links = self.driver.execute_script(script)
             
             self.logger.info(f"Found {len(links)} navigable links")
             return [self.clean_url(link['url']) for link in links if (link['is_displayed'] == True and self.is_link_valid(link['url']))]

@@ -42,6 +42,9 @@ class Memory():
         # memory compression system
         self.model = None
         self.tokenizer = None
+        if recover_last_session:
+            self.load_memory()
+            self.session_recovered = True
         self.device = self.get_cuda_device()
         if recover_last_session:
             self.load_memory()
