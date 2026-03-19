@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <img src="./media/agi_banner.jpg" width="800" alt="AGI Neural Network" style="border-radius: 10px;">
+</p>
+
+<p align="center">
   <strong>"Building More Advanced AI from Existing AI"</strong>
 </p>
 
@@ -34,6 +38,10 @@ We believe in:
 
 ## 🌟 Why AgenticSeek?
 
+<p align="center">
+  <img src="./media/agi_comparison.jpg" width="700" alt="AI Evolution" style="border-radius: 10px;">
+</p>
+
 | Traditional AI Assistants | AgenticSeek |
 |---------------------------|-------------|
 | Reactive single responses | Proactive multi-step reasoning |
@@ -46,6 +54,10 @@ We believe in:
 ---
 
 ## 🧠 Advanced Capabilities (2026)
+
+<p align="center">
+  <img src="./media/agi_research.jpg" width="700" alt="AGI Research" style="border-radius: 10px;">
+</p>
 
 ### 1. Advanced Reasoning Engine
 ```
@@ -266,6 +278,20 @@ agenticSeek/
 
 ---
 
+## 🎨 Futuristic Gallery
+
+<p align="center">
+  <img src="./media/futuristic/futuristic-ai-brain-neural-network-digital-consciousness.jpg" width="350" alt="AI Brain 1">
+  <img src="./media/futuristic/futuristic-ai-digital-brain-neural-network.jpg" width="350" alt="AI Brain 2">
+</p>
+
+<p align="center">
+  <img src="./media/futuristic/digital-brain-artificial-consciousness-circuits.jpg" width="350" alt="Digital Consciousness">
+  <img src="./media/futuristic/futuristic-digital-brain-glowing-circuits.jpg" width="350" alt="Glowing Circuits">
+</p>
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions:
@@ -304,4 +330,9 @@ We welcome contributions:
 <p align="center">
   <strong>Building More Advanced AI from Existing AI</strong><br>
   Join us in pushing the boundaries of artificial intelligence.
+</p>
+
+<p align="center">
+  <img src="./media/futuristic/futuristic-ai-digital-brain-neural-network.jpg" width="400" alt="Digital Brain" style="border-radius: 10px;">
+  <img src="./media/futuristic/futuristic-ai-brain-neural-network-digital-consciousness.jpg" width="400" alt="Neural Consciousness" style="border-radius: 10px;">
 </p>
