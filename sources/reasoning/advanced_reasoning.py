@@ -58,7 +58,6 @@ class AdvancedReasoningEngine:
     - Reflexion for learning from failures
     - ReAct (Reasoning + Acting)
     - Plan-and-Execute for complex tasks
-    - Test-Time Compute (MCTS / O1 Scaling)
     """
     
     def __init__(
@@ -78,16 +77,6 @@ class AdvancedReasoningEngine:
         # Memory for learning from past reasoning
         self.reasoning_history: List[ReasoningResult] = []
         
-    async def _mcts_search(self, problem: str, context: Optional[Dict[str, Any]]) -> str:
-        """
-        Monte Carlo Tree Search for Test-Time Compute (O1-style).
-        Simulates multiple thought paths and evaluates them mathematically/logically.
-        """
-        # Placeholder for full MCTS implementation
-        prompt = f"Using Monte Carlo Tree Search strategy, evaluate multiple paths to solve: {problem}\n{self._context_string(context)}"
-        response = await self._call_llm(prompt)
-        return response.get("thought", "MCTS concluded.")
-
     async def think(
         self,
         problem: str,

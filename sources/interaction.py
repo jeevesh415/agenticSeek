@@ -32,7 +32,6 @@ class Interaction:
         self.stt_enabled = stt_enabled
         self.recover_last_session = recover_last_session
         self.router = AgentRouter(self.agents, supported_language=langs)
-        self.swarm_orchestrator = self.router.swarm_orchestrator
         self.ai_name = self.find_ai_name()
         self.speech = None
         self.transcriber = None
@@ -152,10 +151,6 @@ class Interaction:
         push_last_agent_memory = False
         if self.last_query is None or len(self.last_query) == 0:
             return False
-
-        # Future AGI Swarm execution hook
-        # await self.swarm_orchestrator.execute_swarm(self.last_query)
-
         agent = self.router.select_agent(self.last_query)
         if agent is None:
             return False

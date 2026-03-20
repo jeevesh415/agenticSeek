@@ -16,20 +16,6 @@ from sources.language import LanguageUtility
 from sources.utility import pretty_print, animate_thinking, timer_decorator
 from sources.logger import Logger
 
-class SwarmOrchestrator:
-    """
-    SwarmOrchestrator manages a liquid swarm of specialized agents.
-    It extends the legacy AgentRouter to support parallel execution and dynamic routing.
-    """
-    def __init__(self, agents: list):
-        self.agents = agents
-        # Placeholder for dynamic swarm topology initialization
-        self.active_swarms = {}
-
-    async def execute_swarm(self, task: str):
-        # Placeholder for parallel multi-agent execution
-        pass
-
 class AgentRouter:
     """
     AgentRouter is a class that selects the appropriate agent based on the user query.
@@ -37,7 +23,6 @@ class AgentRouter:
     def __init__(self, agents: list, supported_language: List[str] = ["en", "fr", "zh"]):
         self.agents = agents
         self.agents_dict = {}
-        self.swarm_orchestrator = SwarmOrchestrator(agents)
         self.agent_types_dict = {}
         for agent in self.agents:
             if agent.role not in self.agents_dict:

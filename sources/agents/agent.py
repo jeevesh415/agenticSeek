@@ -49,18 +49,7 @@ class Agent():
         self.stop = False
         self.verbose = verbose
         self.executor = ThreadPoolExecutor(max_workers=1)
-
-        # Swarm Connectivity
-        self.swarm_id = None
-        self.swarm_bus = None
     
-    def connect_to_swarm(self, swarm_id: str, bus_channel) -> None:
-        """
-        Connects this agent to a multi-agent swarm event bus.
-        """
-        self.swarm_id = swarm_id
-        self.swarm_bus = bus_channel
-
     @property
     def get_agent_name(self) -> str:
         return self.agent_name
