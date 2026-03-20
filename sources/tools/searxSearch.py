@@ -104,8 +104,10 @@ class searxSearch(Tools):
                     url_header = article.find('a', class_='url_header')
                     if url_header:
                         url = url_header['href']
-                        title = article.find('h3').text.strip() if article.find('h3') else "No Title"
-                        description = article.find('p', class_='content').text.strip() if article.find('p', class_='content') else "No Description"
+                        h3 = article.find('h3')
+                        title = h3.text.strip() if h3 else "No Title"
+                        p_content = article.find('p', class_='content')
+                        description = p_content.text.strip() if p_content else "No Description"
                         results.append(f"Title:{title}\nSnippet:{description}\nLink:{url}")
             else:
                 article_pattern = re.compile(r"<article[^>]*class=['\" ]?result['\" ]?[^>]*>(.*?)</article>", re.S | re.I)
