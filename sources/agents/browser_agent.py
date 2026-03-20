@@ -35,7 +35,7 @@ class BrowserAgent(Agent):
         self.type = "browser_agent"
         self.browser = browser
         self.current_page = ""
-        self.search_history = []
+        self.search_history = set()
         self.navigable_links = []
         self.last_action = Action.NAVIGATE.value
         self.notes = []
@@ -191,10 +191,7 @@ class BrowserAgent(Agent):
         return answer, reasoning
     
     def select_unvisited(self, search_result: List[str]) -> List[str]:
-        results_unvisited = []
-        for res in search_result:
-            if res["link"] not in self.search_history:
-                results_unvisited.append(res) 
+        results_unvisited = [res for res in search_result if res["link"] not in self.search_history]
         self.logger.info(f"Unvisited links: {results_unvisited}")
         return results_unvisited
 
@@ -395,7 +392,7 @@ class BrowserAgent(Agent):
             if link == self.current_page:
                 pretty_print(f"Already visited {link}. Search callback.", color="status")
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
-                self.search_history.append(link)
+                self.search_history.add(link)
                 continue
 
             if Action.REQUEST_EXIT.value in answer:
@@ -411,14 +408,15 @@ class BrowserAgent(Agent):
                 if link is None:
                     request_prompt += f"\nYou previously choosen:\n{self.last_answer} but the website is unavailable. Consider other options."
                 prompt = self.make_newsearch_prompt(request_prompt, unvisited)
-                self.search_history.append(link)
+                if link is not None:
+                    self.search_history.add(link)
                 self.current_page = link
                 continue
 
             animate_thinking(f"Navigating to {link}", color="status")
             if speech_module: speech_module.speak(f"Navigating to {link}")
             nav_ok = await self._run_browser_cmd(self.browser.go_to, link)
-            self.search_history.append(link)
+            self.search_history.add(link)
             if not nav_ok:
                 pretty_print(f"Failed to navigate to {link}.", color="failure")
                 prompt = self.make_newsearch_prompt(user_prompt, unvisited)
