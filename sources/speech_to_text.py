@@ -231,12 +231,13 @@ class AudioTranscriber:
                 end_time = time.time()
                 self.recorded += text
                 print(Fore.YELLOW + f"Transcribed: {text} in {end_time - start_time} seconds" + Fore.RESET)
+                text_lower = text.lower()
                 for language, words in self.trigger_words.items():
-                    if any(word in text.lower() for word in words):
+                    if any(word in text_lower for word in words):
                         print(Fore.GREEN + f"Listening again..." + Fore.RESET)
                         self.recorded = text
                 for language, words in self.confirmation_words.items():
-                    if any(word in text.lower() for word in words):
+                    if any(word in text_lower for word in words):
                         print(Fore.GREEN + f"Trigger detected. Sending to AI..." + Fore.RESET)
                         audio_queue.task_done()
                         done = True
