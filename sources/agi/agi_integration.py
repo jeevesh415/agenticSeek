@@ -48,7 +48,7 @@ except ImportError:
     logger.warning("Deep research module not available")
 
 try:
-    from sources.memory.long_term_memory import (
+    from sources.memory_core.long_term_memory import (
         LongTermMemoryStore,
         MemoryManager,
         MemoryType,

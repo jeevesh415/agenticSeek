@@ -10,7 +10,7 @@ from sources.agents.agent import Agent
 from sources.tools.searxSearch import searxSearch
 from sources.browser import Browser
 from sources.logger import Logger
-from sources.memory import Memory
+from sources.memory_core import Memory
 
 class Action(Enum):
     REQUEST_EXIT = "REQUEST_EXIT"

@@ -4,7 +4,7 @@ import asyncio
 from sources.utility import pretty_print, animate_thinking
 from sources.agents.agent import Agent
 from sources.tools.mcpFinder import MCP_finder
-from sources.memory import Memory
+from sources.memory_core import Memory
 
 # NOTE MCP agent is an active work in progress, not functional yet.
 

@@ -46,3 +46,7 @@ openai
 sniffio
 ordered_set
 pypinyin
+
+faiss-cpu
+scikit-learn
+psutil

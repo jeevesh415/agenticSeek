@@ -23,16 +23,19 @@ from sources.logger import Logger
 config = configparser.ConfigParser()
 config.read('config.ini')
 
+from sources.memory.vector_memory import VectorMemoryManager
+
 class Memory():
     """
-    Memory is a class for managing the conversation memory
-    It provides a method to compress the memory using summarization model.
+    Memory is a class for managing the conversation memory.
+    It provides compression via summarization models and FAISS-powered long-term semantic retrieval.
     """
     def __init__(self, system_prompt: str,
                  recover_last_session: bool = False,
                  memory_compression: bool = True,
                  model_provider: str = "deepseek-r1:14b"):
         self.memory = [{'role': 'system', 'content': system_prompt}]
+        self.vector_memory = VectorMemoryManager()
         
         self.logger = Logger("memory.log")
         self.session_time = datetime.datetime.now()
@@ -169,6 +172,10 @@ class Memory():
     
     def push(self, role: str, content: str) -> int:
         """Push a message to the memory."""
+        # Long-term semantic storage via Vector Memory Manager
+        if role in ['user', 'assistant']:
+            self.vector_memory.remember(content, tags=[role])
+
         ideal_ctx = self.get_ideal_ctx(self.model_provider)
         if ideal_ctx is not None:
             if self.memory_compression and len(content) > ideal_ctx * 1.5:

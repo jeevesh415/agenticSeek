@@ -8,7 +8,7 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from sources.memory import Memory
+from sources.memory_core import Memory
 from sources.utility import pretty_print
 from sources.schemas import executorResult
 

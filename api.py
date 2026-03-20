@@ -19,6 +19,7 @@ from sources.interaction import Interaction
 from sources.agents import CasualAgent, CoderAgent, FileAgent, PlannerAgent, BrowserAgent
 from sources.browser import Browser, create_driver
 from sources.utility import pretty_print
+from sources.tools.osSystem import OSSystemControl
 from sources.logger import Logger
 from sources.schemas import QueryRequest, QueryResponse
 
@@ -128,6 +129,11 @@ def initialize_system():
             provider=provider, verbose=False, browser=browser
         )
     ]
+
+    # Inject futuristic Kernel Control tool to the File/System Agent
+    os_tool = OSSystemControl()
+    agents[2].add_tool("os_kernel", os_tool) # Index 2 is FileAgent
+
     logger.info("Agents initialized")
 
     interaction = Interaction(

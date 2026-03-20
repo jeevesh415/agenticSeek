@@ -15,6 +15,57 @@ from sources.agents.browser_agent import BrowserAgent
 from sources.language import LanguageUtility
 from sources.utility import pretty_print, animate_thinking, timer_decorator
 from sources.logger import Logger
+import asyncio
+
+class SwarmOrchestrator:
+    """
+    SwarmOrchestrator manages a liquid swarm of specialized agents.
+    It splits complex tasks, distributes them to multiple agents, and gathers their responses concurrently.
+    """
+    def __init__(self, agents: list):
+        self.agents = agents
+        self.agent_types = {agent.type: agent for agent in self.agents}
+        self.logger = Logger("swarm.log")
+
+    async def execute_swarm(self, task: str, required_agents: List[str], speech_module=None) -> dict:
+        """
+        Executes a task across multiple agents in parallel.
+        Args:
+            task: The main objective.
+            required_agents: A list of agent roles (e.g., 'browser', 'coder') to spin up.
+        Returns:
+            A dictionary containing the individual responses from each agent.
+        """
+        pretty_print(f"Initiating Swarm Orchestration for task: '{task}'", color="status")
+        tasks = []
+        selected_agents = []
+
+        for role in required_agents:
+            agent = next((a for a in self.agents if a.role == role), None)
+            if agent:
+                selected_agents.append(agent)
+                # We ask each agent to process the task concurrently.
+                # In a full AGI, this would be highly contextualized per agent.
+                tasks.append(agent.process(f"Swarm Sub-task: {task}", speech_module))
+            else:
+                self.logger.warning(f"Swarm requested agent role '{role}' but it was not found.")
+
+        if not tasks:
+            return {"error": "No valid agents found for swarm execution."}
+
+        # Execute all agents in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        swarm_results = {}
+        for agent, result in zip(selected_agents, results):
+            if isinstance(result, Exception):
+                self.logger.error(f"Agent {agent.agent_name} failed in swarm execution: {str(result)}")
+                swarm_results[agent.role] = f"Failed: {str(result)}"
+            else:
+                answer, reasoning = result
+                swarm_results[agent.role] = {"answer": answer, "reasoning": reasoning}
+
+        return swarm_results
 
 class AgentRouter:
     """
@@ -22,6 +73,7 @@ class AgentRouter:
     """
     def __init__(self, agents: list, supported_language: List[str] = ["en", "fr", "zh"]):
         self.agents = agents
+        self.swarm_orchestrator = SwarmOrchestrator(agents)
         self.agents_dict = {}
         self.agent_types_dict = {}
         for agent in self.agents:

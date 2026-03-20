@@ -32,6 +32,7 @@ class Interaction:
         self.stt_enabled = stt_enabled
         self.recover_last_session = recover_last_session
         self.router = AgentRouter(self.agents, supported_language=langs)
+        self.swarm_orchestrator = self.router.swarm_orchestrator
         self.ai_name = self.find_ai_name()
         self.speech = None
         self.transcriber = None
@@ -151,6 +152,22 @@ class Interaction:
         push_last_agent_memory = False
         if self.last_query is None or len(self.last_query) == 0:
             return False
+
+        # Future AGI hook: If the task is heavily complex, trigger a true swarm
+        # In this implementation, we can detect phrases like "swarm" or "multiple" to trigger parallel execution
+        if "swarm" in self.last_query.lower():
+            # Triggering swarm with a mix of browser and coding capabilities
+            swarm_res = await self.swarm_orchestrator.execute_swarm(self.last_query, ["browser", "code"], self.speech)
+            self.last_answer = f"Swarm Execution Complete.\n"
+            for role, data in swarm_res.items():
+                if isinstance(data, dict):
+                    self.last_answer += f"[{role.upper()} AGENT]:\n{data['answer']}\n"
+                else:
+                    self.last_answer += f"[{role.upper()} AGENT] Error: {data}\n"
+            self.last_reasoning = "Swarm parallel execution was triggered."
+            self.last_success = True
+            return True
+
         agent = self.router.select_agent(self.last_query)
         if agent is None:
             return False

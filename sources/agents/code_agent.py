@@ -10,7 +10,7 @@ from sources.tools.BashInterpreter import BashInterpreter
 from sources.tools.JavaInterpreter import JavaInterpreter
 from sources.tools.fileFinder import FileFinder
 from sources.logger import Logger
-from sources.memory import Memory
+from sources.memory_core import Memory
 
 class CoderAgent(Agent):
     """

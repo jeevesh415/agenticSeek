@@ -6,7 +6,7 @@ from sources.tools.searxSearch import searxSearch
 from sources.tools.flightSearch import FlightSearch
 from sources.tools.fileFinder import FileFinder
 from sources.tools.BashInterpreter import BashInterpreter
-from sources.memory import Memory
+from sources.memory_core import Memory
 
 class CasualAgent(Agent):
     def __init__(self, name, prompt_path, provider, verbose=False):

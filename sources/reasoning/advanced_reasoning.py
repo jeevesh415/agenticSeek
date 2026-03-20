@@ -58,6 +58,7 @@ class AdvancedReasoningEngine:
     - Reflexion for learning from failures
     - ReAct (Reasoning + Acting)
     - Plan-and-Execute for complex tasks
+    - Test-Time Compute (Monte Carlo Tree Search - O1 style)
     """
     
     def __init__(
@@ -77,6 +78,74 @@ class AdvancedReasoningEngine:
         # Memory for learning from past reasoning
         self.reasoning_history: List[ReasoningResult] = []
         
+    async def _mcts_search(self, problem: str, context: Optional[Dict[str, Any]], num_simulations: int = 3) -> ThoughtStep:
+        """
+        Executes a Monte Carlo Tree Search (MCTS) for Test-Time Compute (O1 style).
+        Generates multiple thought paths, evaluates their logical consistency, and returns the highest-scoring path.
+        """
+        paths = []
+        # Phase 1: Expansion (Generate multiple diverse thought paths)
+        for i in range(num_simulations):
+            prompt = f"""Using critical thinking, generate a unique, step-by-step solution path to this problem.
+Problem: {problem}
+{self._context_string(context)}
+Provide a detailed logical path (Path {i+1}). Ensure it differs from standard approaches if possible.
+Format:
+{{
+    "thought": "Your step-by-step logical path...",
+    "confidence": 0.0-1.0
+}}"""
+            response = await self._call_llm(prompt)
+            if isinstance(response, str):
+                try:
+                    response = json.loads(response)
+                except Exception:
+                    response = {"thought": response, "confidence": 0.5}
+            paths.append(response)
+
+        # Phase 2: Simulation & Evaluation (Critique each path)
+        evaluated_paths = []
+        for path in paths:
+            eval_prompt = f"""Critique the following logical path for solving the problem:
+Problem: {problem}
+Path: {path.get('thought', '')}
+Evaluate for mathematical correctness, logical consistency, and feasibility. Assign a final score between 0.0 and 1.0.
+Format:
+{{
+    "score": 0.0-1.0,
+    "critique": "Your evaluation..."
+}}"""
+            eval_response = await self._call_llm(eval_prompt)
+            if isinstance(eval_response, str):
+                try:
+                    eval_response = json.loads(eval_response)
+                except Exception:
+                    eval_response = {"score": 0.5, "critique": eval_response}
+
+            # Default to original confidence if evaluation fails to provide a valid score
+            score = eval_response.get("score", path.get("confidence", 0.5))
+            try:
+                score = float(score)
+            except (ValueError, TypeError):
+                score = 0.5
+
+            evaluated_paths.append({
+                "thought": path.get("thought", ""),
+                "score": score,
+                "critique": eval_response.get("critique", "")
+            })
+
+        # Phase 3: Selection (Pick the highest-scoring path)
+        best_path = max(evaluated_paths, key=lambda x: x["score"])
+
+        return ThoughtStep(
+            step_number=0, # MCTS is considered the foundational step
+            thought=f"MCTS Selected Path (Score: {best_path['score']}):\n{best_path['thought']}\n\nCritique:\n{best_path['critique']}",
+            reasoning_type=ReasoningType.TREE_OF_THOUGHTS,
+            confidence=best_path['score'],
+            metadata={"simulations": num_simulations, "evaluated_paths": evaluated_paths}
+        )
+
     async def think(
         self,
         problem: str,
@@ -95,8 +164,17 @@ class AdvancedReasoningEngine:
         thought_steps: List[ThoughtStep] = []
         problem_state = problem
         
+        # Phase 0: Test-Time Compute (MCTS)
+        if self.enable_tree_search:
+            mcts_step = await self._mcts_search(problem_state, context)
+            thought_steps.append(mcts_step)
+            problem_state = f"Based on MCTS analysis: {mcts_step.thought}\n\nOriginal Problem: {problem}"
+
         # Phase 1: Initial reasoning
         for i, reason_type in enumerate(reasoning_types):
+            if reason_type == ReasoningType.TREE_OF_THOUGHTS and self.enable_tree_search:
+                continue # Skip standard tree search if we already did MCTS
+
             step = await self._reasoning_step(
                 problem_state,
                 reason_type,

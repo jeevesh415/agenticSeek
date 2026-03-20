@@ -9,7 +9,7 @@ from sources.agents.casual_agent import CasualAgent
 from sources.text_to_speech import Speech
 from sources.tools.tools import Tools
 from sources.logger import Logger
-from sources.memory import Memory
+from sources.memory_core import Memory
 from sources.advanced_capabilities import suggest_capability_guidance
 
 class PlannerAgent(Agent):
