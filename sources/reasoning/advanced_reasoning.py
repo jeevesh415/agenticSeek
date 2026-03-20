@@ -32,7 +32,7 @@ class ThoughtStep:
     reasoning_type: ReasoningType
     confidence: float = 1.0
     artifacts: List[Any] = field(default_factory=list)
-   反思: Optional[str] = None
+   reflection: Optional[str] = None
     revision: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -335,7 +335,7 @@ Identify:
 
 Format your response as:
 {{
-    "反思": "Your self-reflection...",
+    "reflection": "Your self-reflection...",
     "confidence": 0.0-1.0,
     "revision": "If needed, revised version",
     "improvements": ["List of improvements"]
@@ -345,10 +345,10 @@ Format your response as:
         
         return ThoughtStep(
             step_number=step.step_number + 0.5,
-            thought=response.get("反思", step.thought),
+            thought=response.get("reflection", step.thought),
             reasoning_type=ReasoningType.SELF_REFLECTION,
             confidence=response.get("confidence", step.confidence),
-            反思=response.get("反思"),
+            reflection=response.get("reflection"),
             revision=response.get("revision"),
             metadata={"parent_step": step.step_number}
         )
