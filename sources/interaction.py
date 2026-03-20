@@ -156,8 +156,13 @@ class Interaction:
         # Future AGI hook: If the task is heavily complex, trigger a true swarm
         # In this implementation, we can detect phrases like "swarm" or "multiple" to trigger parallel execution
         if "swarm" in self.last_query.lower():
-            # Triggering swarm with a mix of browser and coding capabilities
-            swarm_res = await self.swarm_orchestrator.execute_swarm(self.last_query, ["browser", "code"], self.speech)
+
+            # Ensure the Swarm Orchestrator has the LLM tools injected for constitutional checks and evolution
+            if self.swarm_orchestrator.evolution_engine is None and self.agents and len(self.agents) > 0:
+                self.swarm_orchestrator.inject_subsystems(self.agents[0].llm)
+
+            # Triggering swarm with generic sub-tasks (the DAO will allocate correctly)
+            swarm_res = await self.swarm_orchestrator.execute_swarm(self.last_query, ["research_subtask", "execution_subtask"], self.speech)
             self.last_answer = f"Swarm Execution Complete.\n"
             for role, data in swarm_res.items():
                 if isinstance(data, dict):
