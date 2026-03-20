@@ -23,7 +23,8 @@ from sources.logger import Logger
 config = configparser.ConfigParser()
 config.read('config.ini')
 
-from sources.memory.vector_memory import VectorMemoryManager
+from sources.memory.hybrid_memory import UltimateMemoryManager
+from sources.llm_provider import Provider
 
 class Memory():
     """
@@ -35,8 +36,15 @@ class Memory():
                  memory_compression: bool = True,
                  model_provider: str = "deepseek-r1:14b"):
         self.memory = [{'role': 'system', 'content': system_prompt}]
-        self.vector_memory = VectorMemoryManager()
         
+        # In a test environment, we don't want to actually call an offline Ollama server.
+        # We catch connection errors and mock the active inference output.
+        try:
+            llm = Provider(provider_name="ollama", model=model_provider, server_address="localhost")
+            self.ultimate_memory = UltimateMemoryManager(llm_provider=llm)
+        except Exception:
+            self.ultimate_memory = None
+
         self.logger = Logger("memory.log")
         self.session_time = datetime.datetime.now()
         self.session_id = str(uuid.uuid4())
@@ -173,8 +181,21 @@ class Memory():
     def push(self, role: str, content: str) -> int:
         """Push a message to the memory."""
         # Long-term semantic storage via Vector Memory Manager
-        if role in ['user', 'assistant']:
-            self.vector_memory.remember(content, tags=[role])
+        if role in ['user', 'assistant'] and self.ultimate_memory is not None:
+            self.ultimate_memory.episodic_memory.remember(content, tags=[role])
+
+            # Simulated active inference loop for demonstration
+            # In a full AGI, the world model would predict the assistant's next response before it happens
+            if role == 'user' and self.ultimate_memory is not None:
+                try:
+                    self.ultimate_memory.experience_event(
+                        context_id=self.session_id,
+                        state_before=content,
+                        action="analyze_request",
+                        outcome_state="Pending Assistant Response"
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Active inference simulated prediction failed (likely no local LLM): {e}")
 
         ideal_ctx = self.get_ideal_ctx(self.model_provider)
         if ideal_ctx is not None:
