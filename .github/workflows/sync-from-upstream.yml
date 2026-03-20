@@ -1,70 +1,19 @@
 name: Auto Sync from Upstream
-
 on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-
 jobs:
-  sync-from-upstream:
+  sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-
-      - name: Fetch upstream changes
-        run: |
+      - uses: actions/checkout@v4
+      - run: |
+          git config user.name "Bot" && git config user.email "bot@github.com"
           if ! git remote get-url upstream &>/dev/null; then
-            PARENT_REPO=$(gh api repos/${{ github.repository }} --jq '.parent.full_name')
-            if [ -z "$PARENT_REPO" ] || [ "$PARENT_REPO" = "null" ]; then
-              echo "No parent repository found."
-              exit 0
-            fi
-            git remote add upstream "https://github.com/${PARENT_REPO}.git"
+            PARENT=$(gh api repos/${{ github.repository }} --jq '.parent.full_name')
+            [ -n "$PARENT" ] && git remote add upstream "https://github.com/${PARENT}.git"
           fi
-          
           git fetch upstream
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          BEHIND=$(git rev-list HEAD..upstream/main --count 2>/dev/null || echo "0")
-          if [ "$BEHIND" = "0" ]; then
-            BEHIND=$(git rev-list HEAD..upstream/master --count 2>/dev/null || echo "0")
-          fi
-          echo "Commits behind upstream: $BEHIND"
-          if [ "$BEHIND" = "0" ] || [ "$BEHIND" = "" ]; then
-            echo "Repository is up to date!"
-            exit 0
-          fi
-
-      - name: Sync from upstream
-        run: |
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          if git rev-parse --verify upstream/main &>/dev/null; then
-            UPSTREAM_BRANCH=main
-          else
-            UPSTREAM_BRANCH=master
-          fi
-          git merge upstream/$UPSTREAM_BRANCH --no-edit || {
-            echo "Merge conflict detected."
-            git merge --abort
-            exit 1
-          }
-
-      - name: Push changes
-        run: |
-          git push origin $BRANCH || exit 0
-          echo "Sync completed!"
+          git merge upstream/main --no-edit || git merge upstream/master --no-edit
+          git push origin HEAD || exit 0
