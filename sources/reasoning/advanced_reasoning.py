@@ -32,7 +32,7 @@ class ThoughtStep:
     reasoning_type: ReasoningType
     confidence: float = 1.0
     artifacts: List[Any] = field(default_factory=list)
-   reflection: Optional[str] = None
+    reflection: Optional[str] = None
     revision: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
