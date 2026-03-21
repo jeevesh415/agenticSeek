@@ -7,7 +7,7 @@ import configparser
 import asyncio
 import time
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +20,9 @@ from sources.agents import CasualAgent, CoderAgent, FileAgent, PlannerAgent, Bro
 from sources.browser import Browser, create_driver
 from sources.utility import pretty_print
 from sources.tools.osSystem import OSSystemControl
+from sources.tools.kernel_dominance import KernelDominanceTool
+from sources.swarm.hardware_rl import HardwareRLAgent
+from fastapi import BackgroundTasks
 from sources.logger import Logger
 from sources.schemas import QueryRequest, QueryResponse
 
@@ -134,6 +137,11 @@ def initialize_system():
     os_tool = OSSystemControl()
     agents[2].add_tool("os_kernel", os_tool) # Index 2 is FileAgent
 
+    # Inject absolute OS Dominance (eBPF, CPU/GPU Tuning, PCIe)
+    # Always initialized in DRY RUN mode for safety unless manually overridden by the user.
+    kernel_dominance = KernelDominanceTool(dry_run=True)
+    agents[2].add_tool("kernel_dominance", kernel_dominance)
+
     logger.info("Agents initialized")
 
     interaction = Interaction(
@@ -150,6 +158,21 @@ interaction = initialize_system()
 is_generating = False
 query_resp_history = []
 seen_answers = set()
+
+@api.on_event("startup")
+async def startup_event():
+    # Start the Self-Optimizing Hardware RL Agent in the background
+    rl_agent = HardwareRLAgent(llm_provider=interaction.agents[0].llm, dry_run=True)
+
+    async def run_rl_loop():
+        while True:
+            try:
+                await rl_agent.optimize_hardware_loop()
+            except Exception as e:
+                logger.error(f"Hardware RL Agent Error: {e}")
+            await asyncio.sleep(60) # Run optimization every 60 seconds
+
+    asyncio.create_task(run_rl_loop())
 
 @api.get("/screenshot")
 async def get_screenshot():
