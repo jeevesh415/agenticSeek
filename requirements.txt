@@ -51,3 +51,8 @@ faiss-cpu
 scikit-learn
 psutil
 docker
+pyautogui
+mss
+z3-solver
+pillow
+astor

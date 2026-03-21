@@ -21,6 +21,8 @@ from sources.browser import Browser, create_driver
 from sources.utility import pretty_print
 from sources.tools.osSystem import OSSystemControl
 from sources.tools.kernel_dominance import KernelDominanceTool
+from sources.tools.vision_motor import VisionMotorAutomation
+from sources.swarm.self_patcher import LiveSelfPatchingEngine
 from sources.swarm.hardware_rl import HardwareRLAgent
 from fastapi import BackgroundTasks
 from sources.logger import Logger
@@ -141,6 +143,14 @@ def initialize_system():
     # Always initialized in DRY RUN mode for safety unless manually overridden by the user.
     kernel_dominance = KernelDominanceTool(dry_run=True)
     agents[2].add_tool("kernel_dominance", kernel_dominance)
+
+    # Inject Vision-Motor Automation Tool (VPT / pyautogui)
+    vision_tool = VisionMotorAutomation(dry_run=True)
+    agents[2].add_tool("vision_motor", vision_tool)
+
+    # Inject Live Self-Patching Engine (Hot-reloading Python ASTs)
+    patcher_tool = LiveSelfPatchingEngine(dry_run=True)
+    agents[2].add_tool("self_patcher", patcher_tool)
 
     logger.info("Agents initialized")
 
