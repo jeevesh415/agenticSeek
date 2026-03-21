@@ -173,9 +173,22 @@ class Agent():
     def sync_llm_request(self) -> Tuple[str, str]:
         """
         Ask the LLM to process the prompt and return the answer and the reasoning.
+        Injects the Advanced Holographic and Episodic memories before calling the LLM.
         """
-        memory = self.memory.get()
-        thought = self.llm.respond(memory, self.verbose)
+        import copy
+        memory_copy = copy.deepcopy(self.memory.get())
+
+        # Inject Ultimate Deep Memory Recall into the context
+        if len(memory_copy) > 1:
+            last_user_query = memory_copy[-1].get("content", "")
+            if hasattr(self.memory, "retrieve_context"):
+                deep_context = self.memory.retrieve_context(last_user_query)
+                if deep_context:
+                    # Inject memory invisibly into the system context to guide the LLM's thought
+                    system_msg = f"\n\n[SYSTEM: DEEP MEMORY RECALL INITIATED]\nThe following past insights and symbolic associations have surfaced in your memory relevant to the current task:\n{deep_context}\nUse this knowledge if applicable."
+                    memory_copy[0]["content"] += system_msg
+
+        thought = self.llm.respond(memory_copy, self.verbose)
 
         reasoning = self.extract_reasoning_text(thought)
         answer = self.remove_reasoning_text(thought)

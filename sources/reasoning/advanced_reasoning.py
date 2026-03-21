@@ -532,11 +532,17 @@ Format your response as:
             return {"thought": str(e), "confidence": 0.0}
     
     def _context_string(self, context: Optional[Dict[str, Any]]) -> str:
-        """Format context for prompts"""
+        """Format context for prompts, including Holographic Memory injections"""
         if not context:
             return ""
+
+        context_str = f"\n\nContext:\n{json.dumps(context, indent=2)}"
         
-        return f"\n\nContext:\n{json.dumps(context, indent=2)}"
+        # If Holographic memory is attached to the reasoning context
+        if "deep_memory_recall" in context:
+            context_str += f"\n\n[Advanced Memory Recall]:\n{context['deep_memory_recall']}"
+
+        return context_str
     
     def _get_timestamp(self) -> str:
         """Get current timestamp"""

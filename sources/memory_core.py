@@ -233,6 +233,47 @@ class Memory():
     def get(self) -> list:
         return self.memory
 
+    def retrieve_context(self, current_query: str) -> str:
+        """
+        Actively queries the Ultimate Neuro-Symbolic Memory (FAISS Episodic + HRR Symbolic)
+        to pull highly relevant past experiences and structured facts based on the current user query.
+        Returns a formatted string of deep memory context to be injected into the LLM.
+        """
+        if self.ultimate_memory is None:
+            return ""
+
+        context_str = ""
+
+        # 1. Retrieve Episodic Memory (FAISS)
+        try:
+            episodic_results = self.ultimate_memory.search_episodic(current_query, top_k=2)
+            if episodic_results:
+                context_str += "[Episodic Recall]:\n"
+                for res in episodic_results:
+                    # Only include highly relevant or important memories
+                    if res.get('distance', 1.0) < 0.8 or res.get('importance', 0.0) > 0.6:
+                         context_str += f"- {res['text']}\n"
+        except Exception as e:
+            self.logger.warning(f"Episodic recall failed: {e}")
+
+        # 2. Retrieve Holographic Symbolic Memory (HRR)
+        # We query the structural Vector Symbolic Architecture for related bound concepts
+        try:
+            # Extract a key token from the query to search the HRR vocabulary (e.g. the first meaningful word)
+            tokens = [t for t in current_query.split() if len(t) > 3]
+            if tokens:
+                symbolic_results = self.ultimate_memory.query_symbolic(tokens[0])
+                if symbolic_results:
+                    context_str += "\n[Symbolic Associations (HRR)]:\n"
+                    # Filter out base roles, keep actual conceptual associations
+                    for concept, sim in symbolic_results:
+                        if sim > 0.5 and not concept.startswith("__ROLE"):
+                            context_str += f"- Strongly associated concept: {concept} (Similarity: {sim:.2f})\n"
+        except Exception as e:
+            self.logger.warning(f"Symbolic HRR recall failed: {e}")
+
+        return context_str.strip()
+
     def get_cuda_device(self) -> str:
         if torch is None:
             return "cpu"
