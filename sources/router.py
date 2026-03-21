@@ -20,6 +20,8 @@ import asyncio
 from sources.swarm.dao import SwarmDAO
 from sources.swarm.evolution import AgentEvolutionEngine
 from sources.swarm.constitution import ConstitutionalGovernance
+from sources.sandbox.docker_manager import DockerEnvironmentManager
+from sources.sandbox.browser_env import ScalableBrowserEnvironment
 
 class SwarmOrchestrator:
     """
@@ -39,6 +41,10 @@ class SwarmOrchestrator:
         # We mock it here for structural integration.
         self.evolution_engine = None
         self.constitution = None
+
+        # Virtual Environment Managers (MicroVMs / Docker)
+        self.docker_manager = DockerEnvironmentManager()
+        self.browser_manager = ScalableBrowserEnvironment(self.docker_manager)
 
     def inject_subsystems(self, llm_provider):
         """Injects LLM dependencies after initialization."""
@@ -66,8 +72,18 @@ class SwarmOrchestrator:
 
             if winning_agent:
                 selected_agents.append(winning_agent)
-                # Active Inference (Curiosity): If the agent is unsure, it explores autonomously.
-                # Here we just queue the task for parallel execution.
+
+                # Active Inference & Virtual Sandbox Provisioning
+                # If the task requires execution of untrusted code or massive web scraping,
+                # the Orchestrator autonomously provisions an ephemeral Docker environment.
+                if "code" in winning_agent.role or "execute" in sub_task:
+                    env_id = f"exec_{winning_agent.agent_name}"
+                    # Spin up an isolated container
+                    self.docker_manager.spawn_environment(env_id, network_disabled=True)
+                    # The agent is now 'sandbox-aware'
+                    winning_agent.current_directory = f"/tmp/{env_id}"
+
+                # Here we queue the task for parallel execution.
                 tasks.append(winning_agent.process(f"Swarm Sub-task: {task} [{sub_task}]", speech_module))
             else:
                 self.logger.warning(f"DAO rejected bid for sub_task '{sub_task}' due to insufficient funds or confidence.")
@@ -101,6 +117,11 @@ class SwarmOrchestrator:
                 if self.evolution_engine and "success" in safe_answer.lower():
                     # Async dispatch the self-improvement loop in the background (Intelligence Explosion)
                     asyncio.create_task(self.evolution_engine.self_improve(agent, task))
+
+                # Clean up Sandboxes to prevent zombie container leaks
+                if "code" in agent.role or "execute" in task.lower():
+                    env_id = f"exec_{agent.agent_name}"
+                    self.docker_manager.destroy_environment(env_id)
 
         return swarm_results
 
