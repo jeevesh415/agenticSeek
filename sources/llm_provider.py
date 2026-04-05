@@ -3,6 +3,7 @@ import platform
 import socket
 import subprocess
 import time
+import json
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +16,8 @@ from sources.logger import Logger
 from sources.utility import pretty_print, animate_thinking
 
 class Provider:
+    METRICS_CACHE_PATH = os.path.join(".logs", "provider_metrics.json")
+
     def __init__(self, provider_name, model, server_address="127.0.0.1:5000", is_local=False):
         self.provider_name = provider_name.lower()
         self.model = model
@@ -41,6 +44,34 @@ class Provider:
         self.api_key = None
         self.internal_url, self.in_docker = self.get_internal_url()
         self.unsafe_providers = ["openai", "deepseek", "dsk_deepseek", "together", "google", "openrouter", "sapient_hrm"]
+        self.provider_profiles = {
+            "ollama": {"task_types": ["coding", "analysis", "chat"], "context_window": 32768, "priority": 1.0},
+            "lm-studio": {"task_types": ["coding", "analysis", "chat"], "context_window": 32768, "priority": 0.9},
+            "server": {"task_types": ["coding", "analysis", "chat"], "context_window": 65536, "priority": 1.0},
+            "openai": {"task_types": ["coding", "analysis", "chat"], "context_window": 128000, "priority": 0.85},
+            "huggingface": {"task_types": ["chat", "analysis"], "context_window": 8192, "priority": 0.65},
+            "google": {"task_types": ["analysis", "chat"], "context_window": 32000, "priority": 0.8},
+            "deepseek": {"task_types": ["coding", "analysis"], "context_window": 64000, "priority": 0.8},
+            "together": {"task_types": ["coding", "analysis", "chat"], "context_window": 32000, "priority": 0.75},
+            "dsk_deepseek": {"task_types": ["coding", "analysis", "chat"], "context_window": 16000, "priority": 0.6},
+            "openrouter": {"task_types": ["coding", "analysis", "chat"], "context_window": 128000, "priority": 0.8},
+            "sapient_hrm": {"task_types": ["analysis", "chat"], "context_window": 16000, "priority": 0.6},
+            "colab": {"task_types": ["coding", "analysis"], "context_window": 32000, "priority": 0.7},
+            "test": {"task_types": ["chat"], "context_window": 2048, "priority": 0.1},
+        }
+        self.circuit_breaker = {
+            "failure_threshold": 3,
+            "cooldown_seconds": 45,
+            "base_backoff_seconds": 1.0,
+            "max_backoff_seconds": 16.0,
+        }
+        self.routing_weights = {
+            "success_rate": 0.45,
+            "latency": 0.30,
+            "task_fit": 0.15,
+            "context_fit": 0.10,
+        }
+        self.metrics_cache = self.load_metrics_cache()
         if self.provider_name not in self.available_providers:
             raise ValueError(f"Unknown provider: {provider_name}")
         if self.provider_name in self.unsafe_providers and self.is_local == False:
@@ -68,14 +99,184 @@ class Provider:
             return "http://localhost", False
         return url, True
 
+    def load_metrics_cache(self):
+        default_metrics = {}
+        for provider in self.available_providers:
+            if provider == "auto":
+                continue
+            default_metrics[provider] = {
+                "attempts": 0,
+                "successes": 0,
+                "errors": 0,
+                "total_latency": 0.0,
+                "avg_latency": 0.0,
+                "consecutive_failures": 0,
+                "circuit_open_until": 0.0,
+            }
+
+        try:
+            if os.path.exists(self.METRICS_CACHE_PATH):
+                with open(self.METRICS_CACHE_PATH, "r", encoding="utf-8") as metrics_file:
+                    cached_metrics = json.load(metrics_file)
+                if isinstance(cached_metrics, dict):
+                    for provider, defaults in default_metrics.items():
+                        defaults.update(cached_metrics.get(provider, {}))
+            else:
+                self.logger.info(f"Metrics cache not found at {self.METRICS_CACHE_PATH}; creating new cache")
+        except Exception as cache_error:
+            self.logger.warning(f"Failed to load metrics cache: {cache_error}. Using default metrics")
+        self.persist_metrics_cache(default_metrics)
+        return default_metrics
+
+    def persist_metrics_cache(self, metrics=None):
+        to_persist = metrics if metrics is not None else self.metrics_cache
+        try:
+            os.makedirs(os.path.dirname(self.METRICS_CACHE_PATH), exist_ok=True)
+            with open(self.METRICS_CACHE_PATH, "w", encoding="utf-8") as metrics_file:
+                json.dump(to_persist, metrics_file, indent=2)
+        except Exception as cache_error:
+            self.logger.warning(f"Failed to persist metrics cache: {cache_error}")
+
+    def estimate_context_tokens(self, history):
+        total_chars = sum(len(msg.get("content", "")) for msg in history if isinstance(msg, dict))
+        return max(1, total_chars // 4)
+
+    def infer_task_type(self, history):
+        text = " ".join(msg.get("content", "").lower() for msg in history if isinstance(msg, dict))
+        if any(keyword in text for keyword in ["code", "python", "debug", "function", "test", "bug"]):
+            return "coding"
+        if any(keyword in text for keyword in ["analyze", "summarize", "compare", "research", "plan"]):
+            return "analysis"
+        return "chat"
+
+    def is_circuit_open(self, provider_name):
+        provider_metrics = self.metrics_cache.get(provider_name, {})
+        return time.time() < provider_metrics.get("circuit_open_until", 0.0)
+
+    def update_metrics(self, provider_name, success, latency, error_message=None):
+        provider_metrics = self.metrics_cache.get(provider_name)
+        if provider_metrics is None:
+            return
+
+        provider_metrics["attempts"] += 1
+        provider_metrics["total_latency"] += max(latency, 0)
+        provider_metrics["avg_latency"] = provider_metrics["total_latency"] / max(provider_metrics["attempts"], 1)
+
+        if success:
+            provider_metrics["successes"] += 1
+            provider_metrics["consecutive_failures"] = 0
+            provider_metrics["circuit_open_until"] = 0.0
+        else:
+            provider_metrics["errors"] += 1
+            provider_metrics["consecutive_failures"] += 1
+            failures = provider_metrics["consecutive_failures"]
+            if failures >= self.circuit_breaker["failure_threshold"]:
+                backoff = min(
+                    self.circuit_breaker["base_backoff_seconds"] * (2 ** (failures - self.circuit_breaker["failure_threshold"])),
+                    self.circuit_breaker["max_backoff_seconds"],
+                )
+                provider_metrics["circuit_open_until"] = time.time() + self.circuit_breaker["cooldown_seconds"] + backoff
+                self.logger.warning(
+                    f"Circuit opened for provider {provider_name} for {self.circuit_breaker['cooldown_seconds'] + backoff:.1f}s"
+                )
+            if error_message:
+                self.logger.warning(f"Provider {provider_name} failed: {error_message}")
+
+        self.persist_metrics_cache()
+
+    def compute_provider_score(self, provider_name, task_type, required_context_tokens):
+        profile = self.provider_profiles.get(provider_name, {})
+        metrics = self.metrics_cache.get(provider_name, {})
+        attempts = max(metrics.get("attempts", 0), 1)
+        success_rate = metrics.get("successes", 0) / attempts
+        avg_latency = metrics.get("avg_latency", 0.0)
+        latency_score = 1 / (1 + avg_latency) if avg_latency > 0 else 1.0
+
+        task_score = 1.0 if task_type in profile.get("task_types", []) else 0.35
+        context_window = profile.get("context_window", 4096)
+        if context_window >= required_context_tokens:
+            context_score = 1.0
+        else:
+            context_score = max(context_window / max(required_context_tokens, 1), 0.1)
+
+        weighted_score = (
+            self.routing_weights["success_rate"] * success_rate
+            + self.routing_weights["latency"] * latency_score
+            + self.routing_weights["task_fit"] * task_score
+            + self.routing_weights["context_fit"] * context_score
+        )
+        weighted_score *= profile.get("priority", 0.5)
+        return weighted_score
+
+    def rank_providers(self, providers, task_type, required_context_tokens):
+        scored = []
+        for provider_name in providers:
+            if self.is_circuit_open(provider_name):
+                self.logger.info(f"Routing skip: provider={provider_name}, reason=circuit_open")
+                continue
+            score = self.compute_provider_score(provider_name, task_type, required_context_tokens)
+            self.logger.info(
+                f"Routing score: provider={provider_name}, score={score:.4f}, task={task_type}, context={required_context_tokens}"
+            )
+            scored.append((provider_name, score))
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return [provider for provider, _ in scored]
+
+    def execute_with_backoff(self, provider_name, history, verbose=False):
+        max_attempts = 3
+        base_backoff = self.circuit_breaker["base_backoff_seconds"]
+        for attempt in range(1, max_attempts + 1):
+            start_time = time.perf_counter()
+            try:
+                response = self.available_providers[provider_name](history, verbose)
+                latency = time.perf_counter() - start_time
+                self.update_metrics(provider_name, success=True, latency=latency)
+                self.logger.info(
+                    f"Routing success: provider={provider_name}, attempt={attempt}, latency={latency:.3f}s"
+                )
+                return response
+            except Exception as provider_error:
+                latency = time.perf_counter() - start_time
+                self.update_metrics(provider_name, success=False, latency=latency, error_message=str(provider_error))
+                if attempt >= max_attempts:
+                    raise
+                sleep_seconds = min(base_backoff * (2 ** (attempt - 1)), self.circuit_breaker["max_backoff_seconds"])
+                self.logger.warning(
+                    f"Routing retry: provider={provider_name}, attempt={attempt}, backoff={sleep_seconds:.1f}s"
+                )
+                time.sleep(sleep_seconds)
+
+    def route_provider(self, history):
+        task_type = self.infer_task_type(history)
+        context_tokens = self.estimate_context_tokens(history)
+        candidates = [
+            provider_name
+            for provider_name in self.available_providers
+            if provider_name not in {"auto", "test"}
+        ]
+
+        if self.is_local:
+            local_first = ["ollama", "lm-studio", "server", "colab"]
+            candidates = [provider for provider in local_first if provider in candidates] + [
+                provider for provider in candidates if provider not in local_first
+            ]
+
+        ranked = self.rank_providers(candidates, task_type, context_tokens)
+        self.logger.info(
+            f"Routing decision: task={task_type}, context_tokens={context_tokens}, ranked={ranked}"
+        )
+        return ranked
+
     def respond(self, history, verbose=True):
         """
         Use the choosen provider to generate text.
         """
-        llm = self.available_providers[self.provider_name]
         self.logger.info(f"Using provider: {self.provider_name} at {self.server_ip}")
         try:
-            thought = llm(history, verbose)
+            if self.provider_name == "auto":
+                thought = self.auto_fn(history, verbose)
+            else:
+                thought = self.execute_with_backoff(self.provider_name, history, verbose)
         except KeyboardInterrupt:
             self.logger.warning("User interrupted the operation with Ctrl+C")
             return "Operation interrupted by user. REQUEST_EXIT"
@@ -503,44 +704,30 @@ class Provider:
         Autonomous Mode: Tries to find the best available free resource.
         It iterates through a list of likely free or local providers.
         """
-        providers_to_try = ["ollama", "lm-studio", "colab", "huggingface"]
+        ranked_providers = self.route_provider(history)
+        pretty_print("AUTO MODE: Attempting ranked provider routing...", color="status")
 
-        pretty_print("AUTO MODE: Attempting to find best available provider...", color="status")
-
-        for p_name in providers_to_try:
+        for p_name in ranked_providers:
             if p_name == "huggingface" and not os.getenv("HUGGINGFACE_API_KEY"):
-                continue # Skip if no key
-
-            try:
-                self.logger.info(f"Auto-switching to {p_name}")
-                # We temporarily switch the provider execution function
-                original_provider_name = self.provider_name
-                self.provider_name = p_name
-
-                # Check online status if it's a local/server based one
-                if p_name in ["ollama", "lm-studio", "colab"]:
-                     # For colab, we use the server_ip if set, otherwise skip
-                     if p_name == "colab" and ("127.0.0.1" in self.server_ip or "localhost" in self.server_ip):
-                         self.provider_name = original_provider_name
-                         continue
-                     if not self.is_ip_online(self.server_ip, timeout=2):
-                         if p_name == "ollama": # Try default ollama port
-                             pass
-                         else:
-                             self.provider_name = original_provider_name
-                             continue
-
-                response = self.available_providers[p_name](history, verbose)
-                pretty_print(f"Successfully used {p_name}", color="success")
-                # Restore provider name to auto for future calls
-                self.provider_name = original_provider_name
-                return response
-            except Exception as e:
-                self.logger.warning(f"Auto provider {p_name} failed: {e}")
-                self.provider_name = "auto"
+                self.logger.info("Routing skip: provider=huggingface, reason=missing_api_key")
                 continue
 
-        self.provider_name = "auto"
+            if p_name in ["lm-studio", "server", "colab"] and not self.is_ip_online(self.server_ip, timeout=2):
+                self.logger.info(f"Routing skip: provider={p_name}, reason=endpoint_offline")
+                continue
+
+            if p_name == "colab" and ("127.0.0.1" in self.server_ip or "localhost" in self.server_ip):
+                self.logger.info("Routing skip: provider=colab, reason=local_address")
+                continue
+
+            try:
+                response = self.execute_with_backoff(p_name, history, verbose)
+                pretty_print(f"Successfully used {p_name}", color="success")
+                return response
+            except Exception as e:
+                self.logger.warning(f"Auto provider {p_name} failed after retries: {e}")
+                continue
+
         raise Exception("Auto Mode: All providers failed. Please check your configuration and available resources.")
 
     def test_fn(self, history, verbose=True):
