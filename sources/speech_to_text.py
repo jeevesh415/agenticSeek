@@ -4,6 +4,7 @@ import queue
 import threading
 import numpy as np
 import time
+import re
 
 IMPORT_FOUND = True
 
@@ -121,10 +122,35 @@ class Transcript:
         
     def remove_hallucinations(self, text: str) -> str:
         """Remove model hallucinations from the text."""
-        # TODO find a better way to do this
-        common_hallucinations = ['Okay.', 'Thank you.', 'Thank you for watching.', 'You\'re', 'Oh', 'you', 'Oh.', 'Uh', 'Oh,', 'Mh-hmm', 'Hmm.', 'going to.', 'not.']
-        for hallucination in common_hallucinations:
-            text = text.replace(hallucination, "")
+        # 1. Strip whitespace
+        text = text.strip()
+        if not text:
+            return ""
+
+        # 2. Known artifact phrases (always remove these completely or the segment containing them)
+        artifacts = [
+            r"Thank you for watching",
+            r"Thanks for watching",
+            r"Subtitle by",
+            r"Amara\.org",
+            r"ww\." # websites
+        ]
+
+        for art in artifacts:
+            if re.search(art, text, re.IGNORECASE):
+                text = re.sub(art + r".*", "", text, flags=re.IGNORECASE).strip()
+
+        # 3. Clean up common silence hallucinations
+        normalized = re.sub(r'[^\w\s]', '', text).lower().strip()
+
+        # If the text is just one of these, return empty.
+        silence_phrases = {
+            'you', 'youre', 'not', 'going to', 'uh', 'hmm', 'mhhmm'
+        }
+
+        if normalized in silence_phrases:
+            return ""
+
         return text
     
     def transcript_job(self, audio_data: np.ndarray, sample_rate: int = 16000) -> str:
