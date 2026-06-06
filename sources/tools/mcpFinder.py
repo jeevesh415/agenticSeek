@@ -1,5 +1,6 @@
 import os, sys
 import requests
+import concurrent.futures
 from urllib.parse import urljoin
 from typing import Dict, Any, Optional
 
@@ -58,12 +59,15 @@ class MCP_finder(Tools):
             Dict[str, Any]: The details of the found MCP server or an error message.
         """
         mcps = self.list_mcp_servers()
-        matching_mcp = []
+        matching_names = []
         for mcp in mcps.get("servers", []):
             name = mcp.get("qualifiedName", "")
             if query.lower() in name.lower():
-                details = self.get_mcp_server_details(name)
-                matching_mcp.append(details)
+                matching_names.append(name)
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            matching_mcp = list(executor.map(self.get_mcp_server_details, matching_names))
+
         return matching_mcp
     
     def execute(self, blocks: list, safety:bool = False) -> str:
