@@ -1,5 +1,5 @@
 import os, sys
-import requests
+import httpx
 import dotenv
 
 dotenv.load_dotenv()
@@ -19,6 +19,7 @@ class FlightSearch(Tools):
         self.name = "Flight Search"
         self.description = "Search for flight information using a flight number via SerpApi."
         self.api_key = api_key or os.getenv("SERPAPI_API_KEY")
+        self.client = httpx.Client(http2=True)
 
     def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
@@ -38,7 +39,7 @@ class FlightSearch(Tools):
                     "type": "2"  # Flight status search
                 }
                 
-                response = requests.get(url, params=params)
+                response = self.client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 
@@ -66,7 +67,9 @@ class FlightSearch(Tools):
                 else:
                     return f"No flight information found for {flight_number}"
                     
-            except requests.RequestException as e:
+            except httpx.RequestError as e:
+                return f"Error during flight search: {str(e)}"
+            except httpx.HTTPStatusError as e:
                 return f"Error during flight search: {str(e)}"
             except Exception as e:
                 return f"Unexpected error: {str(e)}"
