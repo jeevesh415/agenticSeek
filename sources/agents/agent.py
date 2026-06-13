@@ -4,6 +4,7 @@ from abc import abstractmethod
 import os
 import random
 import time
+import inspect
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -252,7 +253,7 @@ class Agent():
         pretty_print(block, color="code")
         pretty_print('▂'*64, color="status")
 
-    def execute_modules(self, answer: str) -> Tuple[bool, str]:
+    async def execute_modules(self, answer: str) -> Tuple[bool, str]:
         """
         Execute all the tools the agent has and return the result.
         """
@@ -272,6 +273,8 @@ class Agent():
                 for block in blocks:
                     self.show_block(block)
                     output = tool.execute([block])
+                    if inspect.isawaitable(output):
+                        output = await output
                     feedback = tool.interpreter_feedback(output) # tool interpreter feedback
                     success = not tool.execution_failure_check(output)
                     self.blocks_result.append(executorResult(block, feedback, success, name))

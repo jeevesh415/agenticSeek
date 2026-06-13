@@ -1,7 +1,9 @@
-
 import os
 import requests
 import dotenv
+import asyncio
+import httpx
+import threading
 
 dotenv.load_dotenv()
 
@@ -25,14 +27,15 @@ class webSearch(Tools):
             "subscribe", "login to continue", "access denied", "restricted content", "404", "this page is not working"
         ]
 
-    def link_valid(self, link):
-        """check if a link is valid."""
+    async def link_valid_async(self, client, link):
+        """check if a link is valid asynchronously."""
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
-            response = requests.get(link, headers=headers, timeout=5)
+            # Follow redirects to match requests behavior
+            response = await client.get(link, headers=headers, timeout=5, follow_redirects=True)
             status = response.status_code
             if status == 200:
                 content = response.text[:1000].lower()
@@ -44,18 +47,41 @@ class webSearch(Tools):
             elif status == 403:
                 return "Status: 403 Forbidden"
             else:
-                return f"Status: {status} {response.reason}"
-        except requests.exceptions.RequestException as e:
+                return f"Status: {status} {response.reason_phrase}"
+        except Exception as e:
             return f"Error: {str(e)}"
 
+    async def check_all_links_async(self, links):
+        """Async implementation of checking all links."""
+        async with httpx.AsyncClient(verify=True) as client:
+            tasks = [self.link_valid_async(client, link) for link in links]
+            return await asyncio.gather(*tasks)
+
     def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+        """Check all links, one by one (asynchronously)."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If we are in a running loop, we must run the new loop in a separate thread
+            result = []
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    res = new_loop.run_until_complete(self.check_all_links_async(links))
+                    result.append(res)
+                finally:
+                    new_loop.close()
+
+            t = threading.Thread(target=run_in_thread)
+            t.start()
+            t.join()
+            return result[0]
+        else:
+            return asyncio.run(self.check_all_links_async(links))
 
     def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
