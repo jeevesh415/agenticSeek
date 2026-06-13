@@ -104,7 +104,59 @@ class FileFinder(Tools):
                     file_path = os.path.join(root, f)
                     return file_path
         return None
+
+    def optimized_recursive_search(self, directory_path: str, filenames: list[str]) -> dict[str, str]:
+        """
+        Recursively searches for multiple files in a directory and its subdirectories efficiently.
+        Args:
+            directory_path (str): The directory to search in
+            filenames (list[str]): The list of filenames to search for
+        Returns:
+            dict[str, str]: A dictionary mapping filenames to their found paths
+        """
+        results = {}
+        # Pre-strip filenames to avoid repeated stripping in loop
+        pending_filenames = set(f.strip() for f in filenames)
+
+        # Preserving existing exclusion logic from recursive_search (including strict substring check)
+        excluded_files = [".pyc", ".o", ".so", ".a", ".lib", ".dll", ".dylib", ".git"]
+
+        for root, dirs, files in os.walk(directory_path):
+            if not pending_filenames:
+                break
+
+            for f in files:
+                if f is None:
+                    continue
+                # Preserving original exclusion behavior
+                if any(excluded_file in f for excluded_file in excluded_files):
+                    continue
+
+                f_stripped = f.strip()
+                found_for_this_file = []
+                for query in pending_filenames:
+                    # Preserving original substring match behavior: query in filename
+                    if query in f_stripped:
+                        # Map the query back to the result.
+                        # Note: we stored stripped queries in pending_filenames.
+                        # The caller expects results keyed by the original filename?
+                        # Wait, if I strip here, I lose the original string if it had whitespace.
+                        # But original code did `filename.strip() in f.strip()`.
+                        # So the key in the result should probably be the stripped version
+                        # OR I need to maintain a mapping.
+                        # However, `execute` uses `filename` (from block) to lookup.
+                        # So I should probably keep `pending_filenames` as `(original, stripped)` or just iterate.
+                        results[query] = os.path.join(root, f)
+                        found_for_this_file.append(query)
+
+                # Remove found queries from pending
+                for found in found_for_this_file:
+                    pending_filenames.remove(found)
+
+                if not pending_filenames:
+                    break
         
+        return results
 
     def execute(self, blocks: list, safety:bool = False) -> str:
         """
@@ -117,20 +169,48 @@ class FileFinder(Tools):
         if not blocks or not isinstance(blocks, list):
             return "Error: No valid filenames provided"
 
-        output = ""
+        # First pass: Collect all filenames and parse blocks
+        parsed_blocks = []
+        filenames_to_search = set()
+
         for block in blocks:
             filename = self.get_parameter_value(block, "name")
             action = self.get_parameter_value(block, "action")
+
             if filename is None:
-                output = "Error: No filename provided\n"
-                return output
+                # If we return immediately, we might miss other valid blocks or disrupt flow.
+                # But original code returned immediately on first error.
+                return "Error: No filename provided\n"
+
             if action is None:
                 action = "info"
-            print("File finder: recursive search started...")
-            file_path = self.recursive_search(self.work_dir, filename)
+
+            parsed_blocks.append({"filename": filename, "action": action})
+            filenames_to_search.add(filename)
+
+        print("File finder: optimized recursive search started...")
+        # We pass the list of original filenames.
+        # The optimized search will use stripped versions for matching,
+        # but needs to return results keyed by SOMETHING that execute can use.
+        # If I change optimized_search to use stripped keys, I must use stripped keys here too.
+
+        search_results = self.optimized_recursive_search(self.work_dir, list(filenames_to_search))
+
+        output = ""
+        for block_data in parsed_blocks:
+            filename = block_data["filename"]
+            action = block_data["action"]
+
+            # Since optimized_recursive_search now keys by stripped filename (based on my proposed change above),
+            # I should lookup by stripped filename.
+            # Wait, let's adjust optimized_recursive_search to handle this mapping correctly.
+
+            file_path = search_results.get(filename.strip())
+
             if file_path is None:
-                output = f"File: {filename} - not found\n"
+                output += f"File: {filename} - not found\n"
                 continue
+
             result = self.get_file_info(file_path)
             if "error" in result:
                 output += f"File: {result['filename']} - {result['error']}\n"
