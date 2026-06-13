@@ -1,7 +1,7 @@
-
 import os
-import requests
 import dotenv
+import asyncio
+import httpx
 
 dotenv.load_dotenv()
 
@@ -25,14 +25,15 @@ class webSearch(Tools):
             "subscribe", "login to continue", "access denied", "restricted content", "404", "this page is not working"
         ]
 
-    def link_valid(self, link):
-        """check if a link is valid."""
+    async def link_valid_async(self, client, link):
+        """check if a link is valid asynchronously."""
         if not link.startswith("http"):
             return "Status: Invalid URL"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
-            response = requests.get(link, headers=headers, timeout=5)
+            # Follow redirects to match requests behavior
+            response = await client.get(link, headers=headers, timeout=5, follow_redirects=True)
             status = response.status_code
             if status == 200:
                 content = response.text[:1000].lower()
@@ -44,20 +45,21 @@ class webSearch(Tools):
             elif status == 403:
                 return "Status: 403 Forbidden"
             else:
-                return f"Status: {status} {response.reason}"
-        except requests.exceptions.RequestException as e:
+                return f"Status: {status} {response.reason_phrase}"
+        except Exception as e:
             return f"Error: {str(e)}"
 
-    def check_all_links(self, links):
-        """Check all links, one by one."""
-        # TODO Make it asyncromous or smth
-        statuses = []
-        for i, link in enumerate(links):
-            status = self.link_valid(link)
-            statuses.append(status)
-        return statuses
+    async def check_all_links_async(self, links):
+        """Async implementation of checking all links."""
+        async with httpx.AsyncClient(verify=True) as client:
+            tasks = [self.link_valid_async(client, link) for link in links]
+            return await asyncio.gather(*tasks)
 
-    def execute(self, blocks: str, safety: bool = True) -> str:
+    async def check_all_links(self, links):
+        """Check all links, one by one (asynchronously)."""
+        return await self.check_all_links_async(links)
+
+    async def execute(self, blocks: str, safety: bool = True) -> str:
         if self.api_key is None:
             return "Error: No SerpApi key provided."
         for block in blocks:
@@ -74,26 +76,27 @@ class webSearch(Tools):
                     "num": 50,
                     "output": "json"
                 }
-                response = requests.get(url, params=params)
-                response.raise_for_status()
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
 
-                data = response.json()
-                results = []
-                if "organic_results" in data and len(data["organic_results"]) > 0:
-                    organic_results = data["organic_results"][:50]
-                    links = [result.get("link", "No link available") for result in organic_results]
-                    statuses = self.check_all_links(links)
-                    for result, status in zip(organic_results, statuses):
-                        if not "OK" in status:
-                            continue
-                        title = result.get("title", "No title")
-                        snippet = result.get("snippet", "No snippet available")
-                        link = result.get("link", "No link available")
-                        results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
-                    return "\n\n".join(results)
-                else:
-                    return "No results found for the query."
-            except requests.RequestException as e:
+                    data = response.json()
+                    results = []
+                    if "organic_results" in data and len(data["organic_results"]) > 0:
+                        organic_results = data["organic_results"][:50]
+                        links = [result.get("link", "No link available") for result in organic_results]
+                        statuses = await self.check_all_links(links)
+                        for result, status in zip(organic_results, statuses):
+                            if not "OK" in status:
+                                continue
+                            title = result.get("title", "No title")
+                            snippet = result.get("snippet", "No snippet available")
+                            link = result.get("link", "No link available")
+                            results.append(f"Title:{title}\nSnippet:{snippet}\nLink:{link}")
+                        return "\n\n".join(results)
+                    else:
+                        return "No results found for the query."
+            except httpx.RequestError as e:
                 return f"Error during web search: {str(e)}"
             except Exception as e:
                 return f"Unexpected error: {str(e)}"
@@ -111,6 +114,6 @@ class webSearch(Tools):
 if __name__ == "__main__":
     search_tool = webSearch(api_key=os.getenv("SERPAPI_KEY"))
     query = "when did covid start"
-    result = search_tool.execute([query], safety=True)
+    result = asyncio.run(search_tool.execute([query], safety=True))
     output = search_tool.interpreter_feedback(result)
     print(output)
