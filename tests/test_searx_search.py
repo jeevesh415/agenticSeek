@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from sources.tools.searxSearch import searxSearch
 from dotenv import load_dotenv
 import requests  # Import the requests module
+from unittest.mock import patch, MagicMock
 
 load_dotenv()
 
@@ -82,6 +83,62 @@ class TestSearxSearch(unittest.TestCase):
         # Test when the output does not contain an error
         output = "Search completed successfully"
         self.assertFalse(self.search_tool.execution_failure_check(output))
+
+    def test_link_valid(self):
+        # Test 1: Invalid URL
+        result = self.search_tool.link_valid("ftp://example.com")
+        self.assertEqual(result, "Status: Invalid URL")
+
+        # Test 2: OK URL (Mocked)
+        with patch('requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "text/html"}
+            mock_response.iter_content.return_value = [b"This is a normal page."]
+
+            mock_get.return_value.__enter__.return_value = mock_response
+            mock_get.return_value.__exit__.return_value = None
+
+            result = self.search_tool.link_valid("http://example.com")
+            self.assertEqual(result, "Status: OK")
+
+        # Test 3: Paywall URL (Mocked)
+        with patch('requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "text/html"}
+            mock_response.iter_content.return_value = [b"Sorry, Member-only content."]
+
+            mock_get.return_value.__enter__.return_value = mock_response
+            mock_get.return_value.__exit__.return_value = None
+
+            result = self.search_tool.link_valid("http://paywall.com")
+            self.assertEqual(result, "Status: Possible Paywall")
+
+        # Test 4: 404 URL (Mocked)
+        with patch('requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+
+            mock_get.return_value.__enter__.return_value = mock_response
+            mock_get.return_value.__exit__.return_value = None
+
+            result = self.search_tool.link_valid("http://example.com/404")
+            self.assertEqual(result, "Status: 404 Not Found")
+
+        # Test 5: Non-text content (Image)
+        with patch('requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "image/png"}
+            mock_response.iter_content.return_value = [b"binary data"]
+
+            mock_get.return_value.__enter__.return_value = mock_response
+            mock_get.return_value.__exit__.return_value = None
+
+            result = self.search_tool.link_valid("http://example.com/image.png")
+            self.assertEqual(result, "Status: OK")
+            mock_response.iter_content.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()
